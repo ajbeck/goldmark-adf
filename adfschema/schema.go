@@ -1,4 +1,18 @@
 // Package adfschema provides JSON Schema validation for Atlassian Document Format.
+//
+// This package embeds the official ADF JSON Schema and provides functions to
+// validate ADF documents against it. The schema is lazily initialized on first
+// use and cached for subsequent validations.
+//
+// Use [Validate] to check if a JSON document conforms to the ADF specification:
+//
+//	if err := adfschema.Validate(jsonBytes); err != nil {
+//	    log.Printf("Invalid ADF: %v", err)
+//	}
+//
+// For tests where validation failure should be fatal, use [MustValidate]:
+//
+//	adfschema.MustValidate(jsonBytes) // panics on error
 package adfschema
 
 import (

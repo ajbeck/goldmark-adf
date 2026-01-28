@@ -8,6 +8,10 @@ import (
 )
 
 // Document represents the root ADF document node.
+//
+// Every ADF document has a version (always 1), a type of "doc", and a content
+// array containing the top-level block nodes. Use [NewDocument] to create a
+// properly initialized Document.
 type Document struct {
 	Version int    `json:"version"`
 	Type    string `json:"type"`
@@ -24,7 +28,15 @@ func NewDocument() *Document {
 }
 
 // Node represents an ADF node. It uses a flexible structure that can represent
-// any node type in ADF, including block nodes, inline nodes, and text nodes.
+// any node type in ADF, including block nodes (paragraph, heading, codeBlock),
+// inline nodes (hardBreak), and text nodes.
+//
+// Block and inline nodes use the Content field to hold child nodes.
+// Text nodes use the Text field for their content and may have Marks applied.
+// The Attrs field holds type-specific attributes like heading level or link href.
+//
+// Use the constructor functions (e.g., [NewParagraph], [NewHeading], [NewText])
+// to create properly initialized nodes.
 type Node struct {
 	Type    string         `json:"type"`
 	Attrs   map[string]any `json:"attrs,omitempty"`
@@ -34,6 +46,10 @@ type Node struct {
 }
 
 // Mark represents a mark applied to a text node.
+//
+// Marks are used for inline formatting such as bold ([NewStrongMark]), italic
+// ([NewEmMark]), code ([NewCodeMark]), strikethrough ([NewStrikeMark]), and
+// links ([NewLinkMark]). Multiple marks can be applied to a single text node.
 type Mark struct {
 	Type  string         `json:"type"`
 	Attrs map[string]any `json:"attrs,omitempty"`

@@ -9,44 +9,108 @@ import (
 	"github.com/ajbeck/goldmark-adf"
 )
 
-func Example_basic() {
-	markdown := []byte(`# Hello World
-
-This is a **bold** and *italic* paragraph with a [link](https://example.com).
-
-- Item 1
-- Item 2
-- Item 3
-
-> This is a blockquote
-
-` + "```go" + `
-func main() {
-    fmt.Println("Hello")
-}
-` + "```")
-
-	output, err := adf.Convert(markdown)
+// This example demonstrates basic Markdown to ADF conversion using the
+// convenience function [adf.Convert].
+func Example() {
+	output, err := adf.Convert([]byte("Hello **world**"))
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
 	}
 	fmt.Println(string(output))
+	// Output:
+	// {
+	//   "version": 1,
+	//   "type": "doc",
+	//   "content": [
+	//     {
+	//       "type": "paragraph",
+	//       "content": [
+	//         {
+	//           "type": "text",
+	//           "text": "Hello "
+	//         },
+	//         {
+	//           "type": "text",
+	//           "marks": [
+	//             {
+	//               "type": "strong"
+	//             }
+	//           ],
+	//           "text": "world"
+	//         }
+	//       ]
+	//     }
+	//   ]
+	// }
 }
 
-func Example_withGFM() {
-	markdown := []byte(`| Name | Age |
-| ---- | --- |
-| Alice | 30 |
-| Bob | 25 |
-
-This has ~~strikethrough~~ text.`)
-
+// This example demonstrates creating a reusable goldmark instance with [adf.New].
+// This approach is more efficient when converting multiple documents.
+func Example_reusableInstance() {
+	md := adf.New()
 	var buf bytes.Buffer
-	md := adf.NewWithGFM()
-	if err := md.Convert(markdown, &buf); err != nil {
+
+	if err := md.Convert([]byte("# Title"), &buf); err != nil {
 		fmt.Println("Error:", err)
 		return
 	}
 	fmt.Println(buf.String())
+	// Output:
+	// {
+	//   "version": 1,
+	//   "type": "doc",
+	//   "content": [
+	//     {
+	//       "type": "heading",
+	//       "attrs": {
+	//         "level": 1
+	//       },
+	//       "content": [
+	//         {
+	//           "type": "text",
+	//           "text": "Title"
+	//         }
+	//       ]
+	//     }
+	//   ]
+	// }
+}
+
+// This example demonstrates GFM (GitHub Flavored Markdown) support with
+// [adf.NewWithGFM], which enables tables, strikethrough, autolinks, and task lists.
+func Example_withGFM() {
+	md := adf.NewWithGFM()
+	var buf bytes.Buffer
+
+	if err := md.Convert([]byte("Hello ~~world~~"), &buf); err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+	fmt.Println(buf.String())
+	// Output:
+	// {
+	//   "version": 1,
+	//   "type": "doc",
+	//   "content": [
+	//     {
+	//       "type": "paragraph",
+	//       "content": [
+	//         {
+	//           "type": "text",
+	//           "text": "Hello "
+	//         },
+	//         {
+	//           "type": "text",
+	//           "marks": [
+	//             {
+	//               "type": "strike"
+	//             }
+	//           ],
+	//           "text": "world"
+	//         }
+	//       ]
+	//     }
+	//   ]
+	// }
 }

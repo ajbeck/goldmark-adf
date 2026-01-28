@@ -12,7 +12,16 @@ import (
 	"github.com/yuin/goldmark/util"
 )
 
-// Renderer is a goldmark renderer that outputs Atlassian Document Format (ADF) JSON.
+// Renderer is a goldmark [renderer.NodeRenderer] that outputs Atlassian Document
+// Format (ADF) JSON.
+//
+// The Renderer maintains internal state during the AST walk, using a node stack
+// to track the current position in the ADF document tree and a mark stack to
+// accumulate active text marks (bold, italic, links, etc.). This state is reset
+// for each new document.
+//
+// Use [NewRenderer] to create a Renderer, or use the higher-level [New] and
+// [NewWithGFM] functions which configure a complete goldmark instance.
 type Renderer struct {
 	config Config
 
