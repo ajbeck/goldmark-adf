@@ -4,3 +4,6 @@
 
 # Claude Code Local
 ./claude/settings.local.json
+
+# Makefile stamp files
+.stamps/
