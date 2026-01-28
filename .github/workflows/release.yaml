@@ -11,7 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # https://github.com/actions/checkout
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -19,9 +20,27 @@ jobs:
         id: version
         run: |
           VERSION=$(cat VERSION | tr -d '[:space:]')
+
+          # Semver regex from https://semver.org with named capture groups
+          # https://regex101.com/r/Ly7O1x/3/
+          read -r MAJOR MINOR PATCH < <(echo "$VERSION" | perl -ne '
+            my $re = qr/^(?<major>0|[1-9]\d*)\.(?<minor>0|[1-9]\d*)\.(?<patch>0|[1-9]\d*)(?:-(?<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
+            if (/$re/) {
+              print "$+{major} $+{minor} $+{patch}\n";
+            } else {
+              print STDERR "ERROR: Invalid semver format: $_\n";
+              exit 1;
+            }
+          ')
+
+          if [[ -z "$MAJOR" ]]; then
+            echo "::error::Failed to parse VERSION file"
+            exit 1
+          fi
+
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "major=$(echo $VERSION | cut -d. -f1)" >> $GITHUB_OUTPUT
-          echo "minor=$(echo $VERSION | cut -d. -f1-2)" >> $GITHUB_OUTPUT
+          echo "major=$MAJOR" >> $GITHUB_OUTPUT
+          echo "minor=$MAJOR.$MINOR" >> $GITHUB_OUTPUT
 
       - name: Create tags
         run: |
@@ -41,7 +60,6 @@ jobs:
           git push -f origin "v${{ steps.version.outputs.major }}"
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.version.outputs.version }}
-          generate_release_notes: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "v${{ steps.version.outputs.version }}" --generate-notes
