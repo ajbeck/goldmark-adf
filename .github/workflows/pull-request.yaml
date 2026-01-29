@@ -1,0 +1,325 @@
+name: PR Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  GOEXPERIMENT: jsonv2
+
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Format
+        id: fmt
+        run: make fmt
+
+      - name: Vet
+        id: vet
+        run: make vet
+
+      - name: Build
+        id: build
+        run: make build
+
+      - name: Test
+        id: test
+        run: make test
+
+  validate-version:
+    name: Validate Version
+    runs-on: ubuntu-latest
+    outputs:
+      valid: ${{ steps.validate.outputs.valid }}
+      required_bump: ${{ steps.validate.outputs.required_bump }}
+      actual_bump: ${{ steps.validate.outputs.actual_bump }}
+      base_version: ${{ steps.versions.outputs.base }}
+      pr_version: ${{ steps.versions.outputs.pr }}
+      error_msg: ${{ steps.validate.outputs.error_msg }}
+      commit_count: ${{ steps.commits.outputs.count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Get PR commits
+        id: commits
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const commits = await github.paginate(
+              github.rest.pulls.listCommits,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                per_page: 100
+              }
+            );
+
+            const messages = commits.map(c => c.commit.message);
+            core.setOutput('messages', JSON.stringify(messages));
+            core.setOutput('count', commits.length);
+
+      - name: Get version changes
+        id: versions
+        run: |
+          # Get base branch VERSION (default to 0.0.0 if file doesn't exist)
+          BASE_VERSION=$(git show origin/${{ github.base_ref }}:VERSION 2>/dev/null | tr -d '[:space:]' || echo "0.0.0")
+
+          # Get PR branch VERSION
+          PR_VERSION=$(cat VERSION | tr -d '[:space:]')
+
+          echo "base=$BASE_VERSION" >> $GITHUB_OUTPUT
+          echo "pr=$PR_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Validate conventional commits and version
+        id: validate
+        env:
+          COMMIT_MESSAGES: ${{ steps.commits.outputs.messages }}
+          BASE_VERSION: ${{ steps.versions.outputs.base }}
+          PR_VERSION: ${{ steps.versions.outputs.pr }}
+        run: |
+          # Function to parse semver using Perl (matches release.yaml pattern)
+          parse_semver() {
+            echo "$1" | perl -ne '
+              my $re = qr/^(?<major>0|[1-9]\d*)\.(?<minor>0|[1-9]\d*)\.(?<patch>0|[1-9]\d*)(?:-(?<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
+              if (/$re/) {
+                print "$+{major} $+{minor} $+{patch}\n";
+              } else {
+                print STDERR "ERROR: Invalid semver format: $_\n";
+                exit 1;
+              }
+            '
+          }
+
+          # Parse versions
+          if ! read -r BASE_MAJOR BASE_MINOR BASE_PATCH < <(parse_semver "$BASE_VERSION"); then
+            echo "::error::Invalid base version format: $BASE_VERSION"
+            echo "valid=false" >> $GITHUB_OUTPUT
+            echo "error_msg=Invalid base version format: $BASE_VERSION" >> $GITHUB_OUTPUT
+            echo "required_bump=unknown" >> $GITHUB_OUTPUT
+            echo "actual_bump=unknown" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          if ! read -r PR_MAJOR PR_MINOR PR_PATCH < <(parse_semver "$PR_VERSION"); then
+            echo "::error::Invalid PR version format: $PR_VERSION"
+            echo "valid=false" >> $GITHUB_OUTPUT
+            echo "error_msg=Invalid PR version format: $PR_VERSION" >> $GITHUB_OUTPUT
+            echo "required_bump=unknown" >> $GITHUB_OUTPUT
+            echo "actual_bump=unknown" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          echo "Base version: $BASE_MAJOR.$BASE_MINOR.$BASE_PATCH"
+          echo "PR version: $PR_MAJOR.$PR_MINOR.$PR_PATCH"
+
+          # Determine required bump from commits
+          # Initialize temp file for tracking required bump
+          echo "none" > /tmp/required_bump
+
+          # Process each commit message
+          echo "$COMMIT_MESSAGES" | jq -r '.[]' | while IFS= read -r msg; do
+            first_line=$(echo "$msg" | head -1)
+
+            # Check for BREAKING CHANGE in commit body
+            if echo "$msg" | grep -qE '^BREAKING CHANGE:'; then
+              echo "major" > /tmp/required_bump
+              continue
+            fi
+
+            # Check for ! suffix (breaking change indicator)
+            if echo "$first_line" | grep -qE '^[a-z]+(\([^)]+\))?!:'; then
+              echo "major" > /tmp/required_bump
+              continue
+            fi
+
+            # Check for feat: (requires at least minor)
+            if echo "$first_line" | grep -qE '^feat(\([^)]+\))?:'; then
+              current=$(cat /tmp/required_bump)
+              if [[ "$current" != "major" ]]; then
+                echo "minor" > /tmp/required_bump
+              fi
+              continue
+            fi
+
+            # Check for fix: (requires at least patch)
+            if echo "$first_line" | grep -qE '^fix(\([^)]+\))?:'; then
+              current=$(cat /tmp/required_bump)
+              if [[ "$current" == "none" ]]; then
+                echo "patch" > /tmp/required_bump
+              fi
+            fi
+          done
+
+          REQUIRED_BUMP=$(cat /tmp/required_bump)
+          echo "Required bump: $REQUIRED_BUMP"
+
+          # Determine actual bump
+          if [[ $PR_MAJOR -gt $BASE_MAJOR ]]; then
+            ACTUAL_BUMP="major"
+          elif [[ $PR_MAJOR -lt $BASE_MAJOR ]]; then
+            ACTUAL_BUMP="downgrade"
+          elif [[ $PR_MINOR -gt $BASE_MINOR ]]; then
+            ACTUAL_BUMP="minor"
+          elif [[ $PR_MINOR -lt $BASE_MINOR ]]; then
+            ACTUAL_BUMP="downgrade"
+          elif [[ $PR_PATCH -gt $BASE_PATCH ]]; then
+            ACTUAL_BUMP="patch"
+          elif [[ $PR_PATCH -lt $BASE_PATCH ]]; then
+            ACTUAL_BUMP="downgrade"
+          else
+            ACTUAL_BUMP="none"
+          fi
+
+          echo "Actual bump: $ACTUAL_BUMP"
+
+          # Validate
+          VALID="true"
+          ERROR_MSG=""
+
+          if [[ "$ACTUAL_BUMP" == "downgrade" ]]; then
+            VALID="false"
+            ERROR_MSG="VERSION cannot be downgraded"
+          elif [[ "$REQUIRED_BUMP" == "major" && "$ACTUAL_BUMP" != "major" ]]; then
+            VALID="false"
+            ERROR_MSG="BREAKING CHANGE requires MAJOR version bump (expected x+1.0.0)"
+          elif [[ "$REQUIRED_BUMP" == "minor" && "$ACTUAL_BUMP" != "major" && "$ACTUAL_BUMP" != "minor" ]]; then
+            VALID="false"
+            ERROR_MSG="feat: commits require at least MINOR version bump (expected x.y+1.0 or higher)"
+          elif [[ "$REQUIRED_BUMP" == "patch" && "$ACTUAL_BUMP" == "none" ]]; then
+            VALID="false"
+            ERROR_MSG="fix: commits require at least PATCH version bump (expected x.y.z+1 or higher)"
+          fi
+
+          echo "valid=$VALID" >> $GITHUB_OUTPUT
+          echo "required_bump=$REQUIRED_BUMP" >> $GITHUB_OUTPUT
+          echo "actual_bump=$ACTUAL_BUMP" >> $GITHUB_OUTPUT
+          echo "error_msg=$ERROR_MSG" >> $GITHUB_OUTPUT
+
+          if [[ "$VALID" != "true" ]]; then
+            echo "::error::$ERROR_MSG"
+            exit 1
+          fi
+
+  comment:
+    name: PR Comment
+    runs-on: ubuntu-latest
+    needs: [ci, validate-version]
+    if: always()
+    steps:
+      - name: Post PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- pr-validation-comment -->';
+
+            // Get job results
+            const ciResult = '${{ needs.ci.result }}';
+            const versionResult = '${{ needs.validate-version.result }}';
+
+            // Get version validation details
+            const valid = '${{ needs.validate-version.outputs.valid }}' === 'true';
+            const requiredBump = '${{ needs.validate-version.outputs.required_bump }}' || 'unknown';
+            const actualBump = '${{ needs.validate-version.outputs.actual_bump }}' || 'unknown';
+            const baseVersion = '${{ needs.validate-version.outputs.base_version }}' || 'unknown';
+            const prVersion = '${{ needs.validate-version.outputs.pr_version }}' || 'unknown';
+            const errorMsg = `${{ needs.validate-version.outputs.error_msg }}`;
+            const commitCount = '${{ needs.validate-version.outputs.commit_count }}' || '0';
+
+            // Determine overall status
+            const allPassed = ciResult === 'success' && versionResult === 'success';
+
+            // Status emoji helper
+            const statusEmoji = (result) => {
+              if (result === 'success') return ':white_check_mark:';
+              if (result === 'failure') return ':x:';
+              if (result === 'skipped') return ':fast_forward:';
+              return ':grey_question:';
+            };
+
+            // Build comment body
+            let body = marker + '\n';
+            body += '## PR Validation Results\n\n';
+
+            if (allPassed) {
+              body += ':white_check_mark: **All checks passed**\n\n';
+            } else {
+              body += ':x: **Some checks failed**\n\n';
+            }
+
+            // CI Results section
+            body += '### CI Checks\n\n';
+            body += '| Step | Status |\n';
+            body += '|------|--------|\n';
+            body += `| Format | ${statusEmoji(ciResult)} |\n`;
+            body += `| Vet | ${statusEmoji(ciResult)} |\n`;
+            body += `| Build | ${statusEmoji(ciResult)} |\n`;
+            body += `| Test | ${statusEmoji(ciResult)} |\n`;
+            body += '\n';
+
+            // Version Validation section
+            body += '### Version Validation\n\n';
+
+            if (versionResult === 'success') {
+              body += ':white_check_mark: **Version validation passed**\n\n';
+            } else if (versionResult === 'failure') {
+              body += ':x: **Version validation failed**\n\n';
+              if (errorMsg) {
+                body += `**Error:** ${errorMsg}\n\n`;
+              }
+            } else {
+              body += `:grey_question: **Version validation ${versionResult}**\n\n`;
+            }
+
+            body += '| Detail | Value |\n';
+            body += '|--------|-------|\n';
+            body += `| Commits analyzed | ${commitCount} |\n`;
+            body += `| Base version | \`${baseVersion}\` |\n`;
+            body += `| PR version | \`${prVersion}\` |\n`;
+            body += `| Required bump | ${requiredBump} |\n`;
+            body += `| Actual bump | ${actualBump} |\n`;
+
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+            });
+
+            const existingComment = comments.find(c => c.body && c.body.includes(marker));
+
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: body,
+              });
+              console.log(`Updated existing comment ${existingComment.id}`);
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: body,
+              });
+              console.log('Created new comment');
+            }
