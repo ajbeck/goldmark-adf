@@ -112,6 +112,14 @@ func (r *Renderer) popNode() {
 	}
 }
 
+// discardCurrentNode removes the current node from the stack without appending it.
+// Used to discard empty paragraphs during image handling.
+func (r *Renderer) discardCurrentNode() {
+	if len(r.nodeStack) > 0 {
+		r.nodeStack = r.nodeStack[:len(r.nodeStack)-1]
+	}
+}
+
 // appendToCurrentOrDocument appends a node to the current node or document.
 func (r *Renderer) appendToCurrentOrDocument(n Node) {
 	if len(r.nodeStack) > 0 {
@@ -256,7 +264,14 @@ func (r *Renderer) renderParagraph(w util.BufWriter, source []byte, node ast.Nod
 	if entering {
 		r.pushNode(NewParagraph())
 	} else {
-		r.popNode()
+		// Check if the paragraph is empty and discard it if so
+		// This handles cases where images split paragraphs and leave empty ones
+		current := r.currentNode()
+		if current != nil && current.Type == "paragraph" && len(current.Content) == 0 {
+			r.discardCurrentNode()
+		} else {
+			r.popNode()
+		}
 	}
 	return ast.WalkContinue, nil
 }
@@ -335,15 +350,68 @@ func (r *Renderer) renderImage(w util.BufWriter, source []byte, node ast.Node, e
 		alt = dest
 	}
 
-	// Convert image to a link (as per plan)
 	title := ""
 	if n.Title != nil {
 		title = string(n.Title)
 	}
-	textNode := NewTextWithMarks(alt, []Mark{NewLinkMark(dest, title)})
-	r.appendToCurrentOrDocument(*textNode)
+
+	// Check if external media is enabled
+	if r.config.ExternalMedia {
+		// Handle external media with paragraph splitting
+		r.renderExternalMedia(dest, alt, title)
+	} else {
+		// Fallback: convert image to a link
+		textNode := NewTextWithMarks(alt, []Mark{NewLinkMark(dest, title)})
+		r.appendToCurrentOrDocument(*textNode)
+	}
 
 	return ast.WalkSkipChildren, nil
+}
+
+// renderExternalMedia renders an image as an external media node.
+// If we're inside a paragraph, it splits the paragraph around the image.
+func (r *Renderer) renderExternalMedia(url, alt, title string) {
+	// Check if we're inside a paragraph
+	current := r.currentNode()
+	if current != nil && current.Type == "paragraph" {
+		// If the paragraph has content, pop it (appends to parent)
+		// If the paragraph is empty, just discard it
+		if len(current.Content) > 0 {
+			r.popNode()
+		} else {
+			r.discardCurrentNode()
+		}
+
+		// Emit the mediaSingle with media (and caption if title present)
+		r.emitMediaSingle(url, alt, title)
+
+		// Push a new empty paragraph for remaining content
+		r.pushNode(NewParagraph())
+	} else {
+		// Not in a paragraph, just emit mediaSingle directly
+		r.emitMediaSingle(url, alt, title)
+	}
+}
+
+// emitMediaSingle creates and appends a mediaSingle node with the given media content.
+func (r *Renderer) emitMediaSingle(url, alt, title string) {
+	layout := r.config.ImageLayout
+	if layout == "" {
+		layout = "center"
+	}
+
+	mediaSingle := NewMediaSingle(layout)
+	media := NewExternalMedia(url, alt)
+	mediaSingle.AppendChild(*media)
+
+	// Add caption if title is provided
+	if title != "" {
+		caption := NewCaption()
+		caption.AppendChild(*NewText(title))
+		mediaSingle.AppendChild(*caption)
+	}
+
+	r.appendToCurrentOrDocument(*mediaSingle)
 }
 
 func (r *Renderer) renderLink(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {

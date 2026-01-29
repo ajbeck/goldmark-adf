@@ -15,6 +15,16 @@ type Config struct {
 	// TableLayout specifies the default table layout.
 	// Valid values: "default", "center", "wide", "full-width"
 	TableLayout string
+
+	// ExternalMedia enables external media image handling.
+	// When true, images are rendered as mediaSingle nodes with external media.
+	// When false (default), images are converted to text with link marks.
+	ExternalMedia bool
+
+	// ImageLayout specifies the default layout for mediaSingle nodes.
+	// Valid values: "center", "wide", "full-width", "wrap-left", "wrap-right", "align-start", "align-end"
+	// Defaults to "center" if not specified.
+	ImageLayout string
 }
 
 // ImageHandler is a function that handles image rendering.
@@ -24,6 +34,7 @@ type ImageHandler func(dest, alt, title string) *Node
 func NewConfig() Config {
 	return Config{
 		TableLayout: "default",
+		ImageLayout: "center",
 	}
 }
 
@@ -67,4 +78,44 @@ func (o *withTableLayout) SetConfig(c *renderer.Config) {
 // Valid values: "default", "center", "wide", "full-width"
 func WithTableLayout(layout string) Option {
 	return &withTableLayout{layout: layout}
+}
+
+// withExternalMedia implements Option.
+type withExternalMedia struct {
+	enabled bool
+}
+
+func (o *withExternalMedia) SetADFOption(c *Config) {
+	c.ExternalMedia = o.enabled
+}
+
+func (o *withExternalMedia) SetConfig(c *renderer.Config) {
+	// No-op for renderer.Config
+}
+
+// WithExternalMedia enables or disables external media image handling.
+// When enabled, images are rendered as mediaSingle nodes containing external media.
+// When disabled (default), images are converted to text with link marks.
+func WithExternalMedia(enabled bool) Option {
+	return &withExternalMedia{enabled: enabled}
+}
+
+// withImageLayout implements Option.
+type withImageLayout struct {
+	layout string
+}
+
+func (o *withImageLayout) SetADFOption(c *Config) {
+	c.ImageLayout = o.layout
+}
+
+func (o *withImageLayout) SetConfig(c *renderer.Config) {
+	// No-op for renderer.Config
+}
+
+// WithImageLayout sets the default layout for mediaSingle nodes.
+// Valid values: "center", "wide", "full-width", "wrap-left", "wrap-right", "align-start", "align-end"
+// Defaults to "center" if not specified.
+func WithImageLayout(layout string) Option {
+	return &withImageLayout{layout: layout}
 }
