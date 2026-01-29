@@ -185,6 +185,39 @@ func NewHardBreak() *Node {
 	return &Node{Type: "hardBreak"}
 }
 
+// NewMediaSingle creates a new mediaSingle container node with the specified layout.
+// Valid layouts: "center", "wide", "full-width", "wrap-left", "wrap-right", "align-start", "align-end"
+func NewMediaSingle(layout string) *Node {
+	return &Node{
+		Type:    "mediaSingle",
+		Attrs:   map[string]any{"layout": layout},
+		Content: []Node{},
+	}
+}
+
+// NewExternalMedia creates a new media node for external URLs.
+func NewExternalMedia(url, alt string) *Node {
+	attrs := map[string]any{
+		"type": "external",
+		"url":  url,
+	}
+	if alt != "" {
+		attrs["alt"] = alt
+	}
+	return &Node{
+		Type:  "media",
+		Attrs: attrs,
+	}
+}
+
+// NewCaption creates a new caption node for use within mediaSingle.
+func NewCaption() *Node {
+	return &Node{
+		Type:    "caption",
+		Content: []Node{},
+	}
+}
+
 // Mark constructors
 
 // NewStrongMark creates a bold/strong mark.
