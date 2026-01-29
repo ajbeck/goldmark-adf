@@ -64,6 +64,36 @@ var buf bytes.Buffer
 md.Convert(markdown, &buf)
 ```
 
+### With External Media Images
+
+By default, images are converted to linked text. To render images as actual media in Atlassian products, enable external media:
+
+```go
+md := adf.New(adf.WithExternalMedia(true))
+
+markdown := []byte(`Check out this diagram:
+
+![Architecture](https://example.com/diagram.png)
+
+Pretty cool, right?`)
+
+var buf bytes.Buffer
+md.Convert(markdown, &buf)
+```
+
+This produces `mediaSingle` nodes that display images inline in Jira and Confluence.
+
+You can also control image layout:
+
+```go
+// Options: "center" (default), "wide", "full-width",
+//          "wrap-left", "wrap-right", "align-start", "align-end"
+md := adf.New(
+    adf.WithExternalMedia(true),
+    adf.WithImageLayout("wide"),
+)
+```
+
 ## Building and Testing
 
 ```bash
@@ -90,7 +120,7 @@ GOEXPERIMENT=jsonv2 go test ./...
 - Italic (`*text*`)
 - Inline code (`` `code` ``)
 - Links (`[text](url)`)
-- Images (converted to links)
+- Images (converted to links by default, or external media with `WithExternalMedia(true)`)
 - Hard breaks
 
 ### GFM Extensions (with `NewWithGFM`)
@@ -111,16 +141,18 @@ if err := adfschema.Validate(jsonBytes); err != nil {
 }
 ```
 
-## Output Example
+## Output Examples
 
-Input markdown:
+### Basic Markdown
+
+Input:
 ```markdown
 # Hello World
 
 This is **bold** text with a [link](https://example.com).
 ```
 
-Output ADF JSON:
+Output:
 ```json
 {
   "version": 1,
@@ -155,12 +187,51 @@ Output ADF JSON:
 }
 ```
 
+### External Media Images
+
+Input (with `WithExternalMedia(true)`):
+```markdown
+Check this out:
+
+![Diagram](https://example.com/diagram.png)
+```
+
+Output:
+```json
+{
+  "version": 1,
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "content": [
+        { "type": "text", "text": "Check this out:" }
+      ]
+    },
+    {
+      "type": "mediaSingle",
+      "attrs": { "layout": "center" },
+      "content": [
+        {
+          "type": "media",
+          "attrs": {
+            "type": "external",
+            "url": "https://example.com/diagram.png",
+            "alt": "Diagram"
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## Documentation
 
 - [Implementation Plan](docs/specs/getting-started.md)
 - [Goldmark to ADF Node Mapping](docs/node-mapping.md)
 - [HTML Renderer Patterns](docs/html-renderer-patterns.md)
-- [Future Improvements: Image Handling](docs/future-improvements/image-handling.md)
+- [Atlassian Image Handling Research](docs/research/atlassian-image-handling.md)
 
 ## ADF Resources
 
