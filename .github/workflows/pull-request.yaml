@@ -60,7 +60,7 @@ jobs:
 
       - name: Get PR commits
         id: commits
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const commits = await github.paginate(
@@ -226,7 +226,7 @@ jobs:
     if: always()
     steps:
       - name: Post PR comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const marker = '<!-- pr-validation-comment -->';
