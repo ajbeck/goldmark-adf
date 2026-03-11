@@ -49,6 +49,9 @@ func NewWithGFM(opts ...Option) goldmark.Markdown {
 	// (not their HTML renderers)
 	addGFMParsers(md)
 
+	// Add ADF round-trip extension parsers
+	addADFExtensions(md)
+
 	return md
 }
 
@@ -79,6 +82,33 @@ func addGFMParsers(md goldmark.Markdown) {
 	md.Parser().AddOptions(
 		parser.WithInlineParsers(
 			util.Prioritized(extension.NewTaskCheckBoxParser(), 0),
+		),
+	)
+}
+
+// addADFExtensions adds ADF round-trip parser extensions.
+func addADFExtensions(md goldmark.Markdown) {
+	// Inline parsers for custom ADF syntax.
+	// Priority must be higher (lower number) than default link parser (200)
+	// so our [status:...], [card:...], [date:...], [embed:...] are tried before
+	// goldmark interprets them as link references.
+	md.Parser().AddOptions(
+		parser.WithInlineParsers(
+			util.Prioritized(&statusParser{}, 90),
+			util.Prioritized(&mentionParser{}, 91),
+			util.Prioritized(&dateParser{}, 92),
+			util.Prioritized(&placeholderParser{}, 93),
+			util.Prioritized(&cardParser{}, 94),
+			util.Prioritized(&embedParser{}, 95),
+			util.Prioritized(&emojiParser{}, 96),
+		),
+	)
+
+	// AST transformers for block-level conversions.
+	md.Parser().AddOptions(
+		parser.WithASTTransformers(
+			util.Prioritized(&panelTransformer{}, 100),
+			util.Prioritized(&decisionTransformer{}, 101),
 		),
 	)
 }
