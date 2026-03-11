@@ -279,8 +279,9 @@ Output:
 
 ## Documentation
 
-- [Implementation Plan](docs/specs/getting-started.md)
+- [Markdown Extensions](docs/extensions.md)
 - [Goldmark to ADF Node Mapping](docs/node-mapping.md)
+- [Implementation Plan](docs/specs/getting-started.md)
 - [HTML Renderer Patterns](docs/html-renderer-patterns.md)
 - [Atlassian Image Handling Research](docs/research/atlassian-image-handling.md)
 - [Round-Trip Extension Syntax](https://github.com/ajbeck/adf-to-markdown/blob/main/docs/roundtrip-extensions.md) (in adf-to-markdown)
