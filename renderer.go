@@ -6,6 +6,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 
+	"github.com/ajbeck/goldmark-adf/astext"
 	"github.com/yuin/goldmark/ast"
 	extast "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/renderer"
@@ -74,6 +75,20 @@ func (r *Renderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(extast.KindTableCell, r.renderTableCell)
 	reg.Register(extast.KindStrikethrough, r.renderStrikethrough)
 	reg.Register(extast.KindTaskCheckBox, r.renderTaskCheckBox)
+
+	// ADF round-trip extension nodes (inline)
+	reg.Register(astext.KindStatus, r.renderStatus)
+	reg.Register(astext.KindMention, r.renderMention)
+	reg.Register(astext.KindDate, r.renderDate)
+	reg.Register(astext.KindPlaceholder, r.renderPlaceholder)
+	reg.Register(astext.KindCard, r.renderCard)
+	reg.Register(astext.KindEmbed, r.renderEmbed)
+	reg.Register(astext.KindEmoji, r.renderEmoji)
+
+	// ADF round-trip extension nodes (block)
+	reg.Register(astext.KindPanel, r.renderPanel)
+	reg.Register(astext.KindDecisionList, r.renderDecisionList)
+	reg.Register(astext.KindDecisionItem, r.renderDecisionItem)
 }
 
 // reset prepares the renderer for a new document.
@@ -240,7 +255,9 @@ func (r *Renderer) renderHTMLBlock(w util.BufWriter, source []byte, node ast.Nod
 func (r *Renderer) renderList(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
 		n := node.(*ast.List)
-		if n.IsOrdered() {
+		if isTaskList(n) {
+			r.pushNode(NewTaskList())
+		} else if n.IsOrdered() {
 			r.pushNode(NewOrderedList(n.Start))
 		} else {
 			r.pushNode(NewBulletList())
@@ -253,11 +270,40 @@ func (r *Renderer) renderList(w util.BufWriter, source []byte, node ast.Node, en
 
 func (r *Renderer) renderListItem(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
+		// Check if parent is a task list
+		parent := node.Parent()
+		if parent != nil && parent.Kind() == ast.KindList {
+			list := parent.(*ast.List)
+			if isTaskList(list) {
+				// Determine checked state from the checkbox
+				state := "TODO"
+				if hasCheckedCheckBox(node) {
+					state = "DONE"
+				}
+				r.pushNode(NewTaskItem(state))
+				return ast.WalkContinue, nil
+			}
+		}
 		r.pushNode(NewListItem())
 	} else {
 		r.popNode()
 	}
 	return ast.WalkContinue, nil
+}
+
+// hasCheckedCheckBox checks if a list item has a checked task checkbox.
+func hasCheckedCheckBox(item ast.Node) bool {
+	first := item.FirstChild()
+	if first == nil {
+		return false
+	}
+	for c := first.FirstChild(); c != nil; c = c.NextSibling() {
+		if c.Kind() == extast.KindTaskCheckBox {
+			return c.(*extast.TaskCheckBox).IsChecked
+		}
+		break
+	}
+	return false
 }
 
 func (r *Renderer) renderParagraph(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
@@ -545,11 +591,13 @@ func (r *Renderer) renderStrikethrough(w util.BufWriter, source []byte, node ast
 }
 
 func (r *Renderer) renderTaskCheckBox(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	// Task checkboxes are handled by the task-aware list rendering.
+	// If we reach here, it means the list wasn't converted to a task list
+	// (e.g. mixed task/non-task items). Fall back to text prefix.
 	if !entering {
 		return ast.WalkContinue, nil
 	}
 	n := node.(*extast.TaskCheckBox)
-	// Render checkbox as text prefix
 	var text string
 	if n.IsChecked {
 		text = "[x] "
@@ -557,6 +605,134 @@ func (r *Renderer) renderTaskCheckBox(w util.BufWriter, source []byte, node ast.
 		text = "[ ] "
 	}
 	r.appendToCurrentOrDocument(*NewText(text))
+	return ast.WalkContinue, nil
+}
+
+// isTaskList checks if all items in a list have task checkboxes.
+func isTaskList(list *ast.List) bool {
+	if list.IsOrdered() {
+		return false
+	}
+	for c := list.FirstChild(); c != nil; c = c.NextSibling() {
+		if c.Kind() != ast.KindListItem {
+			return false
+		}
+		if !hasTaskCheckBox(c) {
+			return false
+		}
+	}
+	return list.HasChildren()
+}
+
+// hasTaskCheckBox checks if a list item's first paragraph starts with a TaskCheckBox.
+func hasTaskCheckBox(item ast.Node) bool {
+	first := item.FirstChild()
+	if first == nil {
+		return false
+	}
+	// In goldmark, the task checkbox is a direct child of the list item's
+	// first child (paragraph or text block).
+	for c := first.FirstChild(); c != nil; c = c.NextSibling() {
+		if c.Kind() == extast.KindTaskCheckBox {
+			return true
+		}
+		break // only check first child
+	}
+	return false
+}
+
+// ADF round-trip extension renderers (inline)
+
+func (r *Renderer) renderStatus(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkContinue, nil
+	}
+	n := node.(*astext.Status)
+	r.appendToCurrentOrDocument(*NewStatusNode(n.StatusText, n.Color))
+	return ast.WalkSkipChildren, nil
+}
+
+func (r *Renderer) renderMention(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkContinue, nil
+	}
+	n := node.(*astext.Mention)
+	r.appendToCurrentOrDocument(*NewMentionNode(n.ID, n.DisplayName))
+	return ast.WalkSkipChildren, nil
+}
+
+func (r *Renderer) renderDate(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkContinue, nil
+	}
+	n := node.(*astext.Date)
+	r.appendToCurrentOrDocument(*NewDateNode(n.Timestamp))
+	return ast.WalkSkipChildren, nil
+}
+
+func (r *Renderer) renderPlaceholder(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkContinue, nil
+	}
+	n := node.(*astext.Placeholder)
+	r.appendToCurrentOrDocument(*NewPlaceholderNode(n.Label))
+	return ast.WalkSkipChildren, nil
+}
+
+func (r *Renderer) renderCard(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkContinue, nil
+	}
+	n := node.(*astext.Card)
+	r.appendToCurrentOrDocument(*NewInlineCardNode(n.URL))
+	return ast.WalkSkipChildren, nil
+}
+
+func (r *Renderer) renderEmbed(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkContinue, nil
+	}
+	n := node.(*astext.Embed)
+	r.appendToCurrentOrDocument(*NewEmbedCardNode(n.URL))
+	return ast.WalkSkipChildren, nil
+}
+
+func (r *Renderer) renderEmoji(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkContinue, nil
+	}
+	n := node.(*astext.Emoji)
+	r.appendToCurrentOrDocument(*NewEmojiNode(n.ShortName))
+	return ast.WalkSkipChildren, nil
+}
+
+// ADF round-trip extension renderers (block)
+
+func (r *Renderer) renderPanel(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if entering {
+		r.pushNode(NewPanelNode(node.(*astext.Panel).PanelType))
+	} else {
+		r.popNode()
+	}
+	return ast.WalkContinue, nil
+}
+
+func (r *Renderer) renderDecisionList(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if entering {
+		r.pushNode(NewDecisionListNode())
+	} else {
+		r.popNode()
+	}
+	return ast.WalkContinue, nil
+}
+
+func (r *Renderer) renderDecisionItem(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if entering {
+		n := node.(*astext.DecisionItem)
+		r.pushNode(NewDecisionItemNode(n.State))
+	} else {
+		r.popNode()
+	}
 	return ast.WalkContinue, nil
 }
 

@@ -588,3 +588,325 @@ func TestConvert_Image_ExternalMedia_CustomLayout(t *testing.T) {
 		t.Errorf("Expected layout 'wide', got %v", mediaSingle.Attrs["layout"])
 	}
 }
+
+// --- ADF Round-Trip Extension Tests ---
+
+func convertGFMWithOptions(source []byte, opts ...Option) ([]byte, error) {
+	var buf bytes.Buffer
+	md := NewWithGFM(opts...)
+	if err := md.Convert(source, &buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func TestConvert_TaskList(t *testing.T) {
+	input := []byte("- [x] Done task\n- [ ] Todo task")
+	output, err := convertGFMWithOptions(input)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+
+	if len(doc.Content) != 1 {
+		t.Fatalf("Expected 1 content node, got %d\nOutput: %s", len(doc.Content), output)
+	}
+	taskList := doc.Content[0]
+	if taskList.Type != "taskList" {
+		t.Fatalf("Expected taskList, got %s\nOutput: %s", taskList.Type, output)
+	}
+	if len(taskList.Content) != 2 {
+		t.Fatalf("Expected 2 task items, got %d", len(taskList.Content))
+	}
+
+	item0 := taskList.Content[0]
+	if item0.Type != "taskItem" {
+		t.Errorf("Expected taskItem, got %s", item0.Type)
+	}
+	if item0.Attrs["state"] != "DONE" {
+		t.Errorf("Expected state DONE, got %v", item0.Attrs["state"])
+	}
+
+	item1 := taskList.Content[1]
+	if item1.Type != "taskItem" {
+		t.Errorf("Expected taskItem, got %s", item1.Type)
+	}
+	if item1.Attrs["state"] != "TODO" {
+		t.Errorf("Expected state TODO, got %v", item1.Attrs["state"])
+	}
+}
+
+func TestConvert_Status(t *testing.T) {
+	input := []byte("[status:In Progress|yellow]")
+	output, err := convertGFMWithOptions(input)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+
+	if len(doc.Content) != 1 {
+		t.Fatalf("Expected 1 content node, got %d\nOutput: %s", len(doc.Content), output)
+	}
+	para := doc.Content[0]
+	if len(para.Content) != 1 {
+		t.Fatalf("Expected 1 inline node, got %d\nOutput: %s", len(para.Content), output)
+	}
+	status := para.Content[0]
+	if status.Type != "status" {
+		t.Errorf("Expected status, got %s", status.Type)
+	}
+	if status.Attrs["text"] != "In Progress" {
+		t.Errorf("Expected text 'In Progress', got %v", status.Attrs["text"])
+	}
+	if status.Attrs["color"] != "yellow" {
+		t.Errorf("Expected color 'yellow', got %v", status.Attrs["color"])
+	}
+}
+
+func TestConvert_StatusWithEscapedPipe(t *testing.T) {
+	input := []byte(`[status:Pass \| Fail|red]`)
+	output, err := convertGFMWithOptions(input)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+
+	status := doc.Content[0].Content[0]
+	if status.Type != "status" {
+		t.Fatalf("Expected status, got %s\nOutput: %s", status.Type, output)
+	}
+	if status.Attrs["text"] != "Pass | Fail" {
+		t.Errorf("Expected text 'Pass | Fail', got %v", status.Attrs["text"])
+	}
+}
+
+func TestConvert_Mention(t *testing.T) {
+	input := []byte("@[Brad](abc123)")
+	output, err := convertGFMWithOptions(input)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+
+	mention := doc.Content[0].Content[0]
+	if mention.Type != "mention" {
+		t.Fatalf("Expected mention, got %s\nOutput: %s", mention.Type, output)
+	}
+	if mention.Attrs["id"] != "abc123" {
+		t.Errorf("Expected id 'abc123', got %v", mention.Attrs["id"])
+	}
+	if mention.Attrs["text"] != "Brad" {
+		t.Errorf("Expected text 'Brad', got %v", mention.Attrs["text"])
+	}
+}
+
+func TestConvert_Date(t *testing.T) {
+	input := []byte("[date:1582152559]")
+	output, err := convertGFMWithOptions(input)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+
+	date := doc.Content[0].Content[0]
+	if date.Type != "date" {
+		t.Fatalf("Expected date, got %s\nOutput: %s", date.Type, output)
+	}
+	if date.Attrs["timestamp"] != "1582152559" {
+		t.Errorf("Expected timestamp '1582152559', got %v", date.Attrs["timestamp"])
+	}
+}
+
+func TestConvert_Placeholder(t *testing.T) {
+	input := []byte("{{name}}")
+	output, err := convertGFMWithOptions(input)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+
+	ph := doc.Content[0].Content[0]
+	if ph.Type != "placeholder" {
+		t.Fatalf("Expected placeholder, got %s\nOutput: %s", ph.Type, output)
+	}
+	if ph.Attrs["text"] != "name" {
+		t.Errorf("Expected text 'name', got %v", ph.Attrs["text"])
+	}
+}
+
+func TestConvert_Card(t *testing.T) {
+	input := []byte("[card:https://atlassian.com]")
+	output, err := convertGFMWithOptions(input)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+
+	card := doc.Content[0].Content[0]
+	if card.Type != "inlineCard" {
+		t.Fatalf("Expected inlineCard, got %s\nOutput: %s", card.Type, output)
+	}
+	if card.Attrs["url"] != "https://atlassian.com" {
+		t.Errorf("Expected url 'https://atlassian.com', got %v", card.Attrs["url"])
+	}
+}
+
+func TestConvert_Embed(t *testing.T) {
+	input := []byte("[embed:https://youtube.com/watch?v=abc]")
+	output, err := convertGFMWithOptions(input)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+
+	embed := doc.Content[0].Content[0]
+	if embed.Type != "embedCard" {
+		t.Fatalf("Expected embedCard, got %s\nOutput: %s", embed.Type, output)
+	}
+	if embed.Attrs["url"] != "https://youtube.com/watch?v=abc" {
+		t.Errorf("Expected url, got %v", embed.Attrs["url"])
+	}
+}
+
+func TestConvert_Emoji(t *testing.T) {
+	input := []byte(":smile:")
+	output, err := convertGFMWithOptions(input)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+
+	emoji := doc.Content[0].Content[0]
+	if emoji.Type != "emoji" {
+		t.Fatalf("Expected emoji, got %s\nOutput: %s", emoji.Type, output)
+	}
+	if emoji.Attrs["shortName"] != ":smile:" {
+		t.Errorf("Expected shortName ':smile:', got %v", emoji.Attrs["shortName"])
+	}
+}
+
+func TestConvert_Panel(t *testing.T) {
+	input := []byte("> [!WARNING]\n> Be careful here.")
+	output, err := convertGFMWithOptions(input)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v\nOutput: %s", err, output)
+	}
+
+	if len(doc.Content) != 1 {
+		t.Fatalf("Expected 1 content node, got %d\nOutput: %s", len(doc.Content), output)
+	}
+	panel := doc.Content[0]
+	if panel.Type != "panel" {
+		t.Fatalf("Expected panel, got %s\nOutput: %s", panel.Type, output)
+	}
+	if panel.Attrs["panelType"] != "warning" {
+		t.Errorf("Expected panelType 'warning', got %v", panel.Attrs["panelType"])
+	}
+}
+
+func TestConvert_DecisionList(t *testing.T) {
+	input := []byte("- [!] Use json/v2\n- [?] Pending review")
+	output, err := convertGFMWithOptions(input)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v\nOutput: %s", err, output)
+	}
+
+	if len(doc.Content) != 1 {
+		t.Fatalf("Expected 1 content node, got %d\nOutput: %s", len(doc.Content), output)
+	}
+	decList := doc.Content[0]
+	if decList.Type != "decisionList" {
+		t.Fatalf("Expected decisionList, got %s\nOutput: %s", decList.Type, output)
+	}
+	if len(decList.Content) != 2 {
+		t.Fatalf("Expected 2 items, got %d\nOutput: %s", len(decList.Content), output)
+	}
+
+	item0 := decList.Content[0]
+	if item0.Type != "decisionItem" {
+		t.Errorf("Expected decisionItem, got %s", item0.Type)
+	}
+	if item0.Attrs["state"] != "DECIDED" {
+		t.Errorf("Expected state DECIDED, got %v", item0.Attrs["state"])
+	}
+
+	item1 := decList.Content[1]
+	if item1.Attrs["state"] != "UNDECIDED" {
+		t.Errorf("Expected state UNDECIDED, got %v", item1.Attrs["state"])
+	}
+}
+
+func TestConvert_MixedInline(t *testing.T) {
+	input := []byte(":smile: @[Brad](abc) [date:1582152559] [status:In Progress|yellow] [card:https://atlassian.com]")
+	output, err := convertGFMWithOptions(input)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v\nOutput: %s", err, output)
+	}
+
+	para := doc.Content[0]
+	if para.Type != "paragraph" {
+		t.Fatalf("Expected paragraph, got %s", para.Type)
+	}
+
+	// Check that we got the right node types in order
+	expected := []string{"emoji", "text", "mention", "text", "date", "text", "status", "text", "inlineCard"}
+	if len(para.Content) != len(expected) {
+		t.Fatalf("Expected %d inline nodes, got %d\nOutput: %s", len(expected), len(para.Content), output)
+	}
+	for i, want := range expected {
+		if para.Content[i].Type != want {
+			t.Errorf("node[%d]: expected %s, got %s", i, want, para.Content[i].Type)
+		}
+	}
+}

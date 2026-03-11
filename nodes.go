@@ -274,6 +274,122 @@ func NewTextColorMark(color string) Mark {
 	}
 }
 
+// NewStatus creates a new status inline node.
+func NewStatusNode(text, color string) *Node {
+	return &Node{
+		Type: "status",
+		Attrs: map[string]any{
+			"text":  text,
+			"color": color,
+		},
+	}
+}
+
+// NewMentionNode creates a new mention inline node.
+func NewMentionNode(id, displayName string) *Node {
+	attrs := map[string]any{"id": id}
+	if displayName != "" {
+		attrs["text"] = displayName
+	}
+	return &Node{
+		Type:  "mention",
+		Attrs: attrs,
+	}
+}
+
+// NewDateNode creates a new date inline node.
+func NewDateNode(timestamp string) *Node {
+	return &Node{
+		Type:  "date",
+		Attrs: map[string]any{"timestamp": timestamp},
+	}
+}
+
+// NewPlaceholderNode creates a new placeholder inline node.
+func NewPlaceholderNode(text string) *Node {
+	return &Node{
+		Type:  "placeholder",
+		Attrs: map[string]any{"text": text},
+	}
+}
+
+// NewInlineCardNode creates a new inlineCard node.
+func NewInlineCardNode(url string) *Node {
+	return &Node{
+		Type:  "inlineCard",
+		Attrs: map[string]any{"url": url},
+	}
+}
+
+// NewBlockCardNode creates a new blockCard node.
+func NewBlockCardNode(url string) *Node {
+	return &Node{
+		Type:  "blockCard",
+		Attrs: map[string]any{"url": url},
+	}
+}
+
+// NewEmbedCardNode creates a new embedCard node.
+func NewEmbedCardNode(url string) *Node {
+	return &Node{
+		Type:  "embedCard",
+		Attrs: map[string]any{"url": url},
+	}
+}
+
+// NewEmojiNode creates a new emoji inline node.
+func NewEmojiNode(shortName string) *Node {
+	return &Node{
+		Type:  "emoji",
+		Attrs: map[string]any{"shortName": shortName},
+	}
+}
+
+// NewPanel creates a new panel block node.
+func NewPanelNode(panelType string) *Node {
+	return &Node{
+		Type:    "panel",
+		Attrs:   map[string]any{"panelType": panelType},
+		Content: []Node{},
+	}
+}
+
+// NewTaskList creates a new taskList node.
+func NewTaskList() *Node {
+	return &Node{
+		Type:    "taskList",
+		Attrs:   map[string]any{"localId": ""},
+		Content: []Node{},
+	}
+}
+
+// NewTaskItem creates a new taskItem node.
+func NewTaskItem(state string) *Node {
+	return &Node{
+		Type:    "taskItem",
+		Attrs:   map[string]any{"localId": "", "state": state},
+		Content: []Node{},
+	}
+}
+
+// NewDecisionList creates a new decisionList node.
+func NewDecisionListNode() *Node {
+	return &Node{
+		Type:    "decisionList",
+		Attrs:   map[string]any{"localId": ""},
+		Content: []Node{},
+	}
+}
+
+// NewDecisionItem creates a new decisionItem node.
+func NewDecisionItemNode(state string) *Node {
+	return &Node{
+		Type:    "decisionItem",
+		Attrs:   map[string]any{"localId": "", "state": state},
+		Content: []Node{},
+	}
+}
+
 // AppendChild appends a child node to this node's content.
 func (n *Node) AppendChild(child Node) {
 	n.Content = append(n.Content, child)
