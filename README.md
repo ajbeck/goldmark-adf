@@ -104,15 +104,60 @@ GOEXPERIMENT=jsonv2 go build ./...
 GOEXPERIMENT=jsonv2 go test ./...
 ```
 
+## Round-Trip with adf-to-markdown
+
+This library is designed to work with [adf-to-markdown](https://github.com/ajbeck/adf-to-markdown) for lossless ADF round-tripping:
+
+```
+ADF JSON --> adf-to-markdown --> Markdown --> goldmark-adf --> ADF JSON
+```
+
+**adf-to-markdown** converts ADF JSON to Markdown using custom syntax extensions for ADF-specific nodes (status badges, mentions, panels, etc.). **goldmark-adf** parses that Markdown — including the custom syntax — back into ADF JSON.
+
+Use `NewWithGFM()` for round-trip workflows. It enables GFM parsing (tables, strikethrough, task lists) and registers the custom extension parsers:
+
+```go
+md := adf.NewWithGFM(
+    adf.WithExternalMedia(true), // ![alt](url) -> mediaSingle
+)
+
+var buf bytes.Buffer
+if err := md.Convert(markdown, &buf); err != nil {
+    log.Fatal(err)
+}
+// buf contains ADF JSON
+```
+
+### Custom Extension Syntax
+
+These extensions are parsed by `NewWithGFM()` and correspond to the output of adf-to-markdown:
+
+| Markdown Syntax | ADF Node |
+|---|---|
+| `[status:text\|color]` | `status` |
+| `@[name](id)` | `mention` |
+| `[date:1234567890]` | `date` |
+| `{{placeholder text}}` | `placeholder` |
+| `[card:url]` | `inlineCard` / `blockCard` |
+| `[embed:url]` | `embedCard` |
+| `:shortcode:` | `emoji` |
+| `> [!WARNING]` | `panel` (GitHub alert syntax) |
+| `- [!] text` / `- [?] text` | `decisionList` / `decisionItem` |
+| `- [x]` / `- [ ]` | `taskList` / `taskItem` |
+
+For the full syntax specification and escaping rules, see the [roundtrip-extensions.md](https://github.com/ajbeck/adf-to-markdown/blob/main/docs/roundtrip-extensions.md) document in adf-to-markdown.
+
 ## Supported Markdown Features
 
 ### Block Elements
 - Headings (1-6)
 - Paragraphs
 - Blockquotes
+- Panels (GitHub alert syntax: `> [!NOTE]`, `> [!WARNING]`, etc.)
 - Code blocks (fenced and indented)
 - Unordered lists
 - Ordered lists
+- Decision lists (`- [!]` / `- [?]`)
 - Horizontal rules
 
 ### Inline Elements
@@ -122,12 +167,18 @@ GOEXPERIMENT=jsonv2 go test ./...
 - Links (`[text](url)`)
 - Images (converted to links by default, or external media with `WithExternalMedia(true)`)
 - Hard breaks
+- Status badges (`[status:text|color]`)
+- Mentions (`@[name](id)`)
+- Dates (`[date:timestamp]`)
+- Placeholders (`{{text}}`)
+- Cards (`[card:url]`, `[embed:url]`)
+- Emoji (`:shortcode:`)
 
 ### GFM Extensions (with `NewWithGFM`)
 - Tables
 - Strikethrough (`~~text~~`)
 - Autolinks
-- Task lists
+- Task lists (`- [x]` / `- [ ]` as `taskList` / `taskItem`)
 
 ## Schema Validation
 
@@ -232,6 +283,8 @@ Output:
 - [Goldmark to ADF Node Mapping](docs/node-mapping.md)
 - [HTML Renderer Patterns](docs/html-renderer-patterns.md)
 - [Atlassian Image Handling Research](docs/research/atlassian-image-handling.md)
+- [Round-Trip Extension Syntax](https://github.com/ajbeck/adf-to-markdown/blob/main/docs/roundtrip-extensions.md) (in adf-to-markdown)
+- [Library Integration Guide](https://github.com/ajbeck/adf-to-markdown/blob/main/docs/library-integration.md) (in adf-to-markdown)
 
 ## ADF Resources
 
