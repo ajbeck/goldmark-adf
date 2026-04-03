@@ -28,94 +28,115 @@ var alertToPanelType = map[string]string{
 
 func (t *panelTransformer) Transform(node *ast.Document, reader text.Reader, pc parser.Context) {
 	source := reader.Source()
+
+	// Collect all alert blockquotes first. Goldmark's ast.Walk advances
+	// via c.NextSibling() after visiting each child. ReplaceChild sets
+	// the old node's NextSibling to nil, which terminates the walk and
+	// causes subsequent blockquotes to be skipped. Collecting first and
+	// transforming second avoids mutating the tree during traversal.
+	var targets []*ast.Blockquote
 	ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering || n.Kind() != ast.KindBlockquote {
 			return ast.WalkContinue, nil
 		}
-
 		bq := n.(*ast.Blockquote)
 		first := bq.FirstChild()
 		if first == nil || !ast.IsParagraph(first) {
 			return ast.WalkContinue, nil
 		}
-
 		para := first.(*ast.Paragraph)
-
-		// Use the paragraph's raw source lines for detection because inline
-		// parsers (triggered by '[') may have split the text into multiple
-		// nodes by the time this transformer runs.
 		if para.Lines().Len() == 0 {
 			return ast.WalkContinue, nil
 		}
 		firstSeg := para.Lines().At(0)
-		firstLine := firstSeg.Value(source)
-		m := alertPattern.FindSubmatch(firstLine)
-		if m == nil {
-			return ast.WalkContinue, nil
+		if alertPattern.Match(firstSeg.Value(source)) {
+			targets = append(targets, bq)
 		}
-
-		keyword := string(m[1])
-		panelType := alertToPanelType[keyword]
-		prefixLen := len(m[0])
-
-		panel := astext.NewPanel(panelType)
-
-		// Strip the [!TYPE] prefix from the paragraph's inline children.
-		// Because inline parsing may have split the prefix across multiple
-		// text nodes, walk forward and consume bytes until we've skipped
-		// past the prefix.
-		remaining := prefixLen
-		for remaining > 0 {
-			child := para.FirstChild()
-			if child == nil {
-				break
-			}
-			if child.Kind() != ast.KindText {
-				break
-			}
-			tn := child.(*ast.Text)
-			seg := tn.Segment
-			nodeLen := seg.Stop - seg.Start
-			if nodeLen <= remaining {
-				remaining -= nodeLen
-				para.RemoveChild(para, child)
-			} else {
-				tn.Segment = text.NewSegment(seg.Start+remaining, seg.Stop)
-				remaining = 0
-			}
-		}
-		// Also trim any leading space from the next text node.
-		if fc := para.FirstChild(); fc != nil && fc.Kind() == ast.KindText {
-			tn := fc.(*ast.Text)
-			seg := tn.Segment
-			val := seg.Value(source)
-			trimmed := bytes.TrimLeft(val, " ")
-			if len(trimmed) < len(val) {
-				tn.Segment = text.NewSegment(seg.Start+(len(val)-len(trimmed)), seg.Stop)
-			}
-			if tn.Segment.Stop == tn.Segment.Start {
-				para.RemoveChild(para, fc)
-			}
-		}
-		// If the paragraph is now empty, remove it.
-		if para.ChildCount() == 0 {
-			bq.RemoveChild(bq, para)
-		}
-
-		// Move all children from blockquote to panel.
-		for c := bq.FirstChild(); c != nil; {
-			next := c.NextSibling()
-			bq.RemoveChild(bq, c)
-			panel.AppendChild(panel, c)
-			c = next
-		}
-
-		// Replace blockquote with panel in the tree.
-		parent := bq.Parent()
-		parent.ReplaceChild(parent, bq, panel)
-
 		return ast.WalkContinue, nil
 	})
+
+	for _, bq := range targets {
+		transformBlockquoteToPanel(bq, source)
+	}
+}
+
+// transformBlockquoteToPanel converts a single alert blockquote into a
+// Panel node and splices it into the tree.
+func transformBlockquoteToPanel(bq *ast.Blockquote, source []byte) {
+	first := bq.FirstChild()
+	if first == nil || !ast.IsParagraph(first) {
+		return
+	}
+	para := first.(*ast.Paragraph)
+	if para.Lines().Len() == 0 {
+		return
+	}
+	firstSeg := para.Lines().At(0)
+	firstLine := firstSeg.Value(source)
+	m := alertPattern.FindSubmatch(firstLine)
+	if m == nil {
+		return
+	}
+
+	keyword := string(m[1])
+	panelType := alertToPanelType[keyword]
+	prefixLen := len(m[0])
+
+	panel := astext.NewPanel(panelType)
+
+	// Strip the [!TYPE] prefix from the paragraph's inline children.
+	// Because inline parsing may have split the prefix across multiple
+	// text nodes, walk forward and consume bytes until we've skipped
+	// past the prefix.
+	remaining := prefixLen
+	for remaining > 0 {
+		child := para.FirstChild()
+		if child == nil {
+			break
+		}
+		if child.Kind() != ast.KindText {
+			break
+		}
+		tn := child.(*ast.Text)
+		seg := tn.Segment
+		nodeLen := seg.Stop - seg.Start
+		if nodeLen <= remaining {
+			remaining -= nodeLen
+			para.RemoveChild(para, child)
+		} else {
+			tn.Segment = text.NewSegment(seg.Start+remaining, seg.Stop)
+			remaining = 0
+		}
+	}
+	// Also trim any leading space from the next text node.
+	if fc := para.FirstChild(); fc != nil && fc.Kind() == ast.KindText {
+		tn := fc.(*ast.Text)
+		seg := tn.Segment
+		val := seg.Value(source)
+		trimmed := bytes.TrimLeft(val, " ")
+		if len(trimmed) < len(val) {
+			tn.Segment = text.NewSegment(seg.Start+(len(val)-len(trimmed)), seg.Stop)
+		}
+		if tn.Segment.Stop == tn.Segment.Start {
+			para.RemoveChild(para, fc)
+		}
+	}
+	// If the paragraph is now empty, remove it.
+	if para.ChildCount() == 0 {
+		bq.RemoveChild(bq, para)
+	}
+
+	// Move all children from blockquote to panel.
+	for c := bq.FirstChild(); c != nil; {
+		next := c.NextSibling()
+		bq.RemoveChild(bq, c)
+		panel.AppendChild(panel, c)
+		c = next
+	}
+
+	// Replace blockquote with panel in the tree.
+	parent := bq.Parent()
+	parent.ReplaceChild(parent, bq, panel)
 }
 
 // decisionTransformer converts list items starting with [!] or [?] into
