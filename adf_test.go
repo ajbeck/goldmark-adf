@@ -845,6 +845,35 @@ func TestConvert_Panel(t *testing.T) {
 	}
 }
 
+func TestConvert_PanelConsecutive(t *testing.T) {
+	input := []byte("> [!NOTE]\n> First note.\n\n> [!WARNING]\n> Be careful.\n\n> [!TIP]\n> A tip.\n")
+	output, err := convertGFMWithOptions(input)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v\nOutput: %s", err, output)
+	}
+
+	if len(doc.Content) != 3 {
+		t.Fatalf("Expected 3 content nodes, got %d\nOutput: %s", len(doc.Content), output)
+	}
+
+	want := []string{"info", "warning", "success"}
+	for i, w := range want {
+		node := doc.Content[i]
+		if node.Type != "panel" {
+			t.Errorf("Node %d: expected panel, got %s\nOutput: %s", i, node.Type, output)
+			continue
+		}
+		if node.Attrs["panelType"] != w {
+			t.Errorf("Node %d: expected panelType %q, got %v", i, w, node.Attrs["panelType"])
+		}
+	}
+}
+
 func TestConvert_DecisionList(t *testing.T) {
 	input := []byte("- [!] Use json/v2\n- [?] Pending review")
 	output, err := convertGFMWithOptions(input)
