@@ -790,6 +790,7 @@ func (r *Renderer) renderDecisionItem(w util.BufWriter, source []byte, node ast.
 	} else {
 		r.popNode()
 	}
+	return ast.WalkContinue, nil
 }
 
 // Ensure we implement the interface
