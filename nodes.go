@@ -125,6 +125,27 @@ func NewListItem() *Node {
 	}
 }
 
+// NewTaskList creates a task list node.
+func NewTaskList() *Node {
+	return &Node{
+		Type:    "taskList",
+		Attrs:   map[string]any{"localId": ""},
+		Content: []Node{},
+	}
+}
+
+// NewTaskItem creates a task list item with the provided completion state.
+func NewTaskItem(state string) *Node {
+	return &Node{
+		Type: "taskItem",
+		Attrs: map[string]any{
+			"localId": "",
+			"state":   state,
+		},
+		Content: []Node{},
+	}
+}
+
 // NewTable creates a new table node.
 func NewTable() *Node {
 	return &Node{
