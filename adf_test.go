@@ -288,6 +288,113 @@ func TestConvertWithGFM_Strikethrough(t *testing.T) {
 	}
 }
 
+func TestConvertWithGFM_TaskList(t *testing.T) {
+	output, err := ConvertWithGFM([]byte("- [ ] First task\n- [x] **Done** task"))
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+	if err := adfschema.Validate(output); err != nil {
+		t.Fatalf("Invalid ADF output: %v\nOutput: %s", err, output)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+	taskList := doc.Content[0]
+	if taskList.Type != "taskList" {
+		t.Fatalf("Expected taskList, got %s", taskList.Type)
+	}
+	if taskList.Attrs["localId"] != "" {
+		t.Errorf("Expected empty task list localId, got %v", taskList.Attrs["localId"])
+	}
+	if len(taskList.Content) != 2 {
+		t.Fatalf("Expected 2 task items, got %d", len(taskList.Content))
+	}
+	if taskList.Content[0].Type != "taskItem" || taskList.Content[0].Attrs["state"] != "TODO" {
+		t.Errorf("Expected TODO taskItem, got %+v", taskList.Content[0])
+	}
+	if taskList.Content[1].Type != "taskItem" || taskList.Content[1].Attrs["state"] != "DONE" {
+		t.Errorf("Expected DONE taskItem, got %+v", taskList.Content[1])
+	}
+	if len(taskList.Content[0].Content) == 0 || taskList.Content[0].Content[0].Type != "text" {
+		t.Errorf("Expected task item to contain inline text directly, got %+v", taskList.Content[0].Content)
+	}
+	if len(taskList.Content[1].Content[0].Marks) != 1 || taskList.Content[1].Content[0].Marks[0].Type != "strong" {
+		t.Errorf("Expected strong mark in completed task, got %+v", taskList.Content[1].Content)
+	}
+}
+
+func TestConvertWithGFM_NestedTaskList(t *testing.T) {
+	input := []byte("- [ ] Parent\n  - [x] Child\n- [ ] Next")
+	output, err := ConvertWithGFM(input)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+	if err := adfschema.Validate(output); err != nil {
+		t.Fatalf("Invalid ADF output: %v\nOutput: %s", err, output)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+	taskList := doc.Content[0]
+	if taskList.Type != "taskList" {
+		t.Fatalf("Expected taskList, got %s", taskList.Type)
+	}
+	if len(taskList.Content) != 3 {
+		t.Fatalf("Expected parent task, nested list, and next task; got %+v", taskList.Content)
+	}
+	if taskList.Content[0].Type != "taskItem" || taskList.Content[1].Type != "taskList" || taskList.Content[2].Type != "taskItem" {
+		t.Errorf("Expected taskItem, taskList, taskItem; got %+v", taskList.Content)
+	}
+	if taskList.Content[1].Content[0].Attrs["state"] != "DONE" {
+		t.Errorf("Expected nested task to be DONE, got %+v", taskList.Content[1].Content[0])
+	}
+}
+
+func TestConvertWithGFM_TaskListExternalMediaFallsBackToLink(t *testing.T) {
+	input := []byte("- [ ] ![Diagram](https://example.com/diagram.png)")
+	var buf bytes.Buffer
+	if err := NewWithGFM(WithExternalMedia(true)).Convert(input, &buf); err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+	if err := adfschema.Validate(buf.Bytes()); err != nil {
+		t.Fatalf("Invalid ADF output: %v\nOutput: %s", err, buf.Bytes())
+	}
+
+	var doc Document
+	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+	taskItem := doc.Content[0].Content[0]
+	if len(taskItem.Content) != 1 || taskItem.Content[0].Type != "text" {
+		t.Fatalf("Expected linked text inside taskItem, got %+v", taskItem.Content)
+	}
+	if len(taskItem.Content[0].Marks) != 1 || taskItem.Content[0].Marks[0].Type != "link" {
+		t.Errorf("Expected link mark inside taskItem, got %+v", taskItem.Content[0].Marks)
+	}
+}
+
+func TestConvertWithGFM_MixedTaskListFallsBackToBulletList(t *testing.T) {
+	output, err := ConvertWithGFM([]byte("- [ ] Task\n- Regular item"))
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+	if err := adfschema.Validate(output); err != nil {
+		t.Fatalf("Invalid ADF output: %v\nOutput: %s", err, output)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+	if doc.Content[0].Type != "bulletList" {
+		t.Errorf("Expected mixed list to remain a bulletList, got %s", doc.Content[0].Type)
+	}
+}
+
 func TestNew_ReusableInstance(t *testing.T) {
 	md := New()
 

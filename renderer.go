@@ -27,9 +27,10 @@ type Renderer struct {
 	config Config
 
 	// State for rendering
-	document  *Document
-	nodeStack []*Node
-	markStack []Mark
+	document      *Document
+	nodeStack     []*Node
+	markStack     []Mark
+	openTaskItems map[ast.Node]bool
 }
 
 // NewRenderer creates a new ADF renderer with the given options.
@@ -96,6 +97,7 @@ func (r *Renderer) reset() {
 	r.document = NewDocument()
 	r.nodeStack = []*Node{}
 	r.markStack = []Mark{}
+	r.openTaskItems = map[ast.Node]bool{}
 }
 
 // currentNode returns the current node being built, or nil if at document level.
@@ -253,12 +255,19 @@ func (r *Renderer) renderHTMLBlock(w util.BufWriter, source []byte, node ast.Nod
 }
 
 func (r *Renderer) renderList(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	list := node.(*ast.List)
 	if entering {
-		n := node.(*ast.List)
-		if isTaskList(n) {
+		if isTaskList(list) {
+			// ADF taskItem nodes can only contain inline content. Goldmark nests a
+			// child list beneath its parent ListItem, so close the parent task item
+			// before emitting the child task list as its sibling.
+			if parentItem, ok := list.Parent().(*ast.ListItem); ok && r.openTaskItems[parentItem] {
+				r.popNode()
+				r.openTaskItems[parentItem] = false
+			}
 			r.pushNode(NewTaskList())
-		} else if n.IsOrdered() {
-			r.pushNode(NewOrderedList(n.Start))
+		} else if list.IsOrdered() {
+			r.pushNode(NewOrderedList(list.Start))
 		} else {
 			r.pushNode(NewBulletList())
 		}
@@ -269,41 +278,29 @@ func (r *Renderer) renderList(w util.BufWriter, source []byte, node ast.Node, en
 }
 
 func (r *Renderer) renderListItem(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if entering {
-		// Check if parent is a task list
-		parent := node.Parent()
-		if parent != nil && parent.Kind() == ast.KindList {
-			list := parent.(*ast.List)
-			if isTaskList(list) {
-				// Determine checked state from the checkbox
-				state := "TODO"
-				if hasCheckedCheckBox(node) {
-					state = "DONE"
-				}
-				r.pushNode(NewTaskItem(state))
-				return ast.WalkContinue, nil
+	item := node.(*ast.ListItem)
+	if list, ok := item.Parent().(*ast.List); ok && isTaskList(list) {
+		if entering {
+			checkBox, _ := taskCheckBox(item)
+			state := "TODO"
+			if checkBox.IsChecked {
+				state = "DONE"
 			}
+			r.pushNode(NewTaskItem(state))
+			r.openTaskItems[item] = true
+		} else if r.openTaskItems[item] {
+			r.popNode()
+			r.openTaskItems[item] = false
 		}
+		return ast.WalkContinue, nil
+	}
+
+	if entering {
 		r.pushNode(NewListItem())
 	} else {
 		r.popNode()
 	}
 	return ast.WalkContinue, nil
-}
-
-// hasCheckedCheckBox checks if a list item has a checked task checkbox.
-func hasCheckedCheckBox(item ast.Node) bool {
-	first := item.FirstChild()
-	if first == nil {
-		return false
-	}
-	for c := first.FirstChild(); c != nil; c = c.NextSibling() {
-		if c.Kind() == extast.KindTaskCheckBox {
-			return c.(*extast.TaskCheckBox).IsChecked
-		}
-		break
-	}
-	return false
 }
 
 func (r *Renderer) renderParagraph(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
@@ -323,6 +320,12 @@ func (r *Renderer) renderParagraph(w util.BufWriter, source []byte, node ast.Nod
 }
 
 func (r *Renderer) renderTextBlock(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if parentItem, ok := node.Parent().(*ast.ListItem); ok {
+		if list, ok := parentItem.Parent().(*ast.List); ok && isTaskList(list) {
+			return ast.WalkContinue, nil
+		}
+	}
+
 	// TextBlock is a lightweight paragraph used in tight lists
 	// In ADF, we still need to wrap content in a paragraph
 	if entering {
@@ -401,8 +404,9 @@ func (r *Renderer) renderImage(w util.BufWriter, source []byte, node ast.Node, e
 		title = string(n.Title)
 	}
 
-	// Check if external media is enabled
-	if r.config.ExternalMedia {
+	// taskItem content only permits inline nodes, so external media must fall
+	// back to linked text even when external media is otherwise enabled.
+	if r.config.ExternalMedia && (r.currentNode() == nil || r.currentNode().Type != "taskItem") {
 		// Handle external media with paragraph splitting
 		r.renderExternalMedia(dest, alt, title)
 	} else {
@@ -598,6 +602,15 @@ func (r *Renderer) renderTaskCheckBox(w util.BufWriter, source []byte, node ast.
 		return ast.WalkContinue, nil
 	}
 	n := node.(*extast.TaskCheckBox)
+	if parentTextBlock, ok := n.Parent().(*ast.TextBlock); ok {
+		if parentItem, ok := parentTextBlock.Parent().(*ast.ListItem); ok {
+			if list, ok := parentItem.Parent().(*ast.List); ok && isTaskList(list) {
+				return ast.WalkContinue, nil
+			}
+		}
+	}
+
+	// Render checkbox as text prefix
 	var text string
 	if n.IsChecked {
 		text = "[x] "
@@ -608,37 +621,57 @@ func (r *Renderer) renderTaskCheckBox(w util.BufWriter, source []byte, node ast.
 	return ast.WalkContinue, nil
 }
 
-// isTaskList checks if all items in a list have task checkboxes.
-func isTaskList(list *ast.List) bool {
-	if list.IsOrdered() {
-		return false
+// taskCheckBox returns the leading task checkbox in a list item, if present.
+func taskCheckBox(item *ast.ListItem) (*extast.TaskCheckBox, bool) {
+	textBlock, ok := item.FirstChild().(*ast.TextBlock)
+	if !ok {
+		return nil, false
 	}
-	for c := list.FirstChild(); c != nil; c = c.NextSibling() {
-		if c.Kind() != ast.KindListItem {
-			return false
-		}
-		if !hasTaskCheckBox(c) {
-			return false
-		}
-	}
-	return list.HasChildren()
+	checkBox, ok := textBlock.FirstChild().(*extast.TaskCheckBox)
+	return checkBox, ok
 }
 
-// hasTaskCheckBox checks if a list item's first paragraph starts with a TaskCheckBox.
-func hasTaskCheckBox(item ast.Node) bool {
-	first := item.FirstChild()
-	if first == nil {
+// isTaskList reports whether every item in a list is a task item and every
+// nested list can also be represented as an ADF task list. This avoids mixing
+// listItem and taskItem nodes in a single ADF taskList.
+func isTaskList(list *ast.List) bool {
+	if !isTaskListItems(list) {
 		return false
 	}
-	// In goldmark, the task checkbox is a direct child of the list item's
-	// first child (paragraph or text block).
-	for c := first.FirstChild(); c != nil; c = c.NextSibling() {
-		if c.Kind() == extast.KindTaskCheckBox {
-			return true
+
+	for item := list.FirstChild(); item != nil; item = item.NextSibling() {
+		for child := item.FirstChild(); child != nil; child = child.NextSibling() {
+			switch child := child.(type) {
+			case *ast.TextBlock:
+				// The leading checkbox and all task-item content are inline.
+			case *ast.List:
+				if isTaskList(child) {
+					continue
+				}
+				return false
+			default:
+				// taskItem cannot contain paragraphs or other block nodes.
+				return false
+			}
 		}
-		break // only check first child
 	}
-	return false
+	return true
+}
+
+func isTaskListItems(list *ast.List) bool {
+	if list.FirstChild() == nil {
+		return false
+	}
+	for item := list.FirstChild(); item != nil; item = item.NextSibling() {
+		listItem, ok := item.(*ast.ListItem)
+		if !ok {
+			return false
+		}
+		if _, ok := taskCheckBox(listItem); !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // ADF round-trip extension renderers (inline)
@@ -733,7 +766,6 @@ func (r *Renderer) renderDecisionItem(w util.BufWriter, source []byte, node ast.
 	} else {
 		r.popNode()
 	}
-	return ast.WalkContinue, nil
 }
 
 // Ensure we implement the interface
