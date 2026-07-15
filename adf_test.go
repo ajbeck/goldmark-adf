@@ -288,6 +288,44 @@ func TestConvertWithGFM_Strikethrough(t *testing.T) {
 	}
 }
 
+func TestConvert_CodeMarkExcludesIncompatibleMarks(t *testing.T) {
+	output, err := Convert([]byte("**`roboduck-toil`**"))
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+	if err := adfschema.Validate(output); err != nil {
+		t.Fatalf("Invalid ADF output: %v\nOutput: %s", err, output)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+	marks := doc.Content[0].Content[0].Marks
+	if len(marks) != 1 || marks[0].Type != "code" {
+		t.Errorf("Expected only code mark, got %+v", marks)
+	}
+}
+
+func TestConvert_CodeMarkRetainsLink(t *testing.T) {
+	output, err := Convert([]byte("[`roboduck-toil`](https://example.com)"))
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+	if err := adfschema.Validate(output); err != nil {
+		t.Fatalf("Invalid ADF output: %v\nOutput: %s", err, output)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+	marks := doc.Content[0].Content[0].Marks
+	if len(marks) != 2 || marks[0].Type != "link" || marks[1].Type != "code" {
+		t.Errorf("Expected link and code marks, got %+v", marks)
+	}
+}
+
 func TestConvertWithGFM_TaskList(t *testing.T) {
 	output, err := ConvertWithGFM([]byte("- [ ] First task\n- [x] **Done** task"))
 	if err != nil {
