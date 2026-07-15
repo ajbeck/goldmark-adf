@@ -165,7 +165,31 @@ func (r *Renderer) currentMarks() []Mark {
 	}
 	marks := make([]Mark, len(r.markStack))
 	copy(marks, r.markStack)
-	return marks
+	return normalizeMarks(marks)
+}
+
+// normalizeMarks enforces ADF mark-combination constraints. In particular,
+// code may only be combined with link, so code takes precedence over all other
+// formatting marks when Markdown nests them together.
+func normalizeMarks(marks []Mark) []Mark {
+	hasCode := false
+	for _, mark := range marks {
+		if mark.Type == "code" {
+			hasCode = true
+			break
+		}
+	}
+	if !hasCode {
+		return marks
+	}
+
+	normalized := make([]Mark, 0, 2)
+	for _, mark := range marks {
+		if mark.Type == "code" || mark.Type == "link" {
+			normalized = append(normalized, mark)
+		}
+	}
+	return normalized
 }
 
 // Block node renderers
