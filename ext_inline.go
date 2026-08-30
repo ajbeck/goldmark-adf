@@ -1,34 +1,48 @@
-//go:build goexperiment.jsonv2
-
 package adf
 
 import (
-	"strings"
+	"bytes"
+	"io"
 
-	"github.com/ajbeck/goldmark-adf/astext"
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/parser"
-	"github.com/yuin/goldmark/text"
+	"github.com/ajbeck/goldmark-adf/v2/astext"
+	"github.com/yuin/goldmark/v2/ast"
+	"github.com/yuin/goldmark/v2/parser"
+	"github.com/yuin/goldmark/v2/text"
 )
 
-// unescapeDelimiters reverses backslash escaping applied by adf-to-markdown.
-func unescapeDelimiters(s string, delims string) string {
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\\' && i+1 < len(s) && strings.IndexByte(delims, s[i+1]) >= 0 {
+// delimiterDecoder consumes only the escapes defined by the round-trip
+// interchange syntax. Other Markdown escapes remain literal payload bytes.
+type delimiterDecoder struct{ delimiters string }
+
+func (d delimiterDecoder) Decode(input []byte) []byte {
+	i := bytes.IndexByte(input, '\\')
+	if i < 0 {
+		return input
+	}
+	out := make([]byte, 0, len(input))
+	out = append(out, input[:i]...)
+	for i < len(input) {
+		if input[i] == '\\' && i+1 < len(input) && bytes.IndexByte([]byte(d.delimiters), input[i+1]) >= 0 {
 			i++
 		}
-		b.WriteByte(s[i])
+		out = append(out, input[i])
+		i++
 	}
-	return b.String()
+	return out
 }
 
-// findClosingBracket finds the index of the unescaped closing bracket ']' in s.
-// Returns -1 if not found.
+func (d delimiterDecoder) DecodeTo(w io.Writer, input []byte) (int, error) {
+	return w.Write(d.Decode(input))
+}
+
+func valueAt(seg text.Segment, start, stop int, decoder text.Decoder) text.SingleLineValue {
+	return text.NewSingleLineValueFromIndex(text.NewIndex(seg.Start+start-seg.Padding, seg.Start+stop-seg.Padding), decoder)
+}
+
 func findClosingBracket(s string) int {
 	for i := 0; i < len(s); i++ {
 		if s[i] == '\\' {
-			i++ // skip escaped char
+			i++
 			continue
 		}
 		if s[i] == ']' {
@@ -38,8 +52,6 @@ func findClosingBracket(s string) int {
 	return -1
 }
 
-// findUnescaped finds the index of the first unescaped occurrence of ch in s.
-// Returns -1 if not found.
 func findUnescaped(s string, ch byte) int {
 	for i := 0; i < len(s); i++ {
 		if s[i] == '\\' {
@@ -51,45 +63,6 @@ func findUnescaped(s string, ch byte) int {
 		}
 	}
 	return -1
-}
-
-// --- Status parser: [status:text|color] ---
-
-type statusParser struct{}
-
-func (p *statusParser) Trigger() []byte { return []byte{'['} }
-
-func (p *statusParser) Parse(parent ast.Node, block text.Reader, pc parser.Context) ast.Node {
-	line, seg := block.PeekLine()
-	if len(line) < 10 || string(line[:8]) != "[status:" {
-		return nil
-	}
-
-	rest := string(line[8:])
-	closeBracket := findClosingBracket(rest)
-	if closeBracket < 0 {
-		return nil
-	}
-
-	inner := rest[:closeBracket]
-	pipeIdx := findLastUnescapedPipe(inner)
-	if pipeIdx < 0 {
-		return nil
-	}
-
-	statusText := unescapeDelimiters(inner[:pipeIdx], "|]")
-	color := inner[pipeIdx+1:]
-
-	// Validate color is a known ADF status color
-	switch color {
-	case "neutral", "purple", "blue", "red", "yellow", "green":
-	default:
-		return nil
-	}
-
-	block.Advance(8 + closeBracket + 1) // [status: + inner + ]
-	_ = seg
-	return astext.NewStatus(statusText, color)
 }
 
 func findLastUnescapedPipe(s string) int {
@@ -106,184 +79,178 @@ func findLastUnescapedPipe(s string) int {
 	return last
 }
 
-// --- Mention parser: @[name](id) ---
+type statusParser struct{}
+
+func (*statusParser) Trigger() []byte { return []byte{'['} }
+
+func (*statusParser) Parse(_ ast.Node, block text.Reader, _ parser.Context) ast.Node {
+	line, seg := block.PeekLine()
+	if len(line) < 10 || string(line[:8]) != "[status:" {
+		return nil
+	}
+	rest := string(line[8:])
+	close := findClosingBracket(rest)
+	if close < 0 {
+		return nil
+	}
+	pipe := findLastUnescapedPipe(rest[:close])
+	if pipe <= 0 {
+		return nil
+	}
+	color := rest[pipe+1 : close]
+	switch color {
+	case "neutral", "purple", "blue", "red", "yellow", "green":
+	default:
+		return nil
+	}
+	block.Advance(8 + close + 1)
+	n := astext.NewStatus(valueAt(seg, 8, 8+pipe, delimiterDecoder{"|]"}), color)
+	n.SetPos(seg.Start - seg.Padding)
+	return n
+}
 
 type mentionParser struct{}
 
-func (p *mentionParser) Trigger() []byte { return []byte{'@'} }
+func (*mentionParser) Trigger() []byte { return []byte{'@'} }
 
-func (p *mentionParser) Parse(parent ast.Node, block text.Reader, pc parser.Context) ast.Node {
-	line, _ := block.PeekLine()
-	if len(line) < 5 || line[0] != '@' || line[1] != '[' {
+func (*mentionParser) Parse(_ ast.Node, block text.Reader, _ parser.Context) ast.Node {
+	line, seg := block.PeekLine()
+	if len(line) < 5 || !bytes.HasPrefix(line, []byte("@[")) {
 		return nil
 	}
-
 	rest := string(line[2:])
 	closeBracket := findClosingBracket(rest)
-	if closeBracket < 0 {
+	if closeBracket < 0 || len(rest) <= closeBracket+2 || rest[closeBracket+1] != '(' {
 		return nil
 	}
-
-	displayName := unescapeDelimiters(rest[:closeBracket], "]")
-
-	after := rest[closeBracket+1:]
-	if len(after) == 0 || after[0] != '(' {
+	closeParen := findUnescaped(rest[closeBracket+2:], ')')
+	if closeParen <= 0 {
 		return nil
 	}
-
-	closeParen := findUnescaped(after[1:], ')')
-	if closeParen < 0 {
-		return nil
-	}
-
-	id := unescapeDelimiters(after[1:1+closeParen], ")")
-
-	// Total consumed: @ + [ + name + ] + ( + id + )
-	total := 2 + closeBracket + 1 + 1 + closeParen + 1
+	idStart := 2 + closeBracket + 2
+	total := idStart + closeParen + 1
 	block.Advance(total)
-	return astext.NewMention(displayName, id)
+	n := astext.NewMention(
+		valueAt(seg, 2, 2+closeBracket, delimiterDecoder{"]"}),
+		valueAt(seg, idStart, idStart+closeParen, delimiterDecoder{")"}),
+	)
+	n.SetPos(seg.Start - seg.Padding)
+	return n
 }
-
-// --- Date parser: [date:digits] ---
 
 type dateParser struct{}
 
-func (p *dateParser) Trigger() []byte { return []byte{'['} }
+func (*dateParser) Trigger() []byte { return []byte{'['} }
 
-func (p *dateParser) Parse(parent ast.Node, block text.Reader, pc parser.Context) ast.Node {
-	line, _ := block.PeekLine()
+func (*dateParser) Parse(_ ast.Node, block text.Reader, _ parser.Context) ast.Node {
+	line, seg := block.PeekLine()
 	if len(line) < 8 || string(line[:6]) != "[date:" {
 		return nil
 	}
-
-	rest := line[6:]
-	closeIdx := -1
-	for i := 0; i < len(rest); i++ {
-		if rest[i] == ']' {
-			closeIdx = i
-			break
-		}
-		if rest[i] < '0' || rest[i] > '9' {
+	close := 6
+	for close < len(line) && line[close] != ']' {
+		if line[close] < '0' || line[close] > '9' {
 			return nil
 		}
+		close++
 	}
-	if closeIdx < 1 {
+	if close == 6 || close == len(line) {
 		return nil
 	}
-
-	timestamp := string(rest[:closeIdx])
-	block.Advance(6 + closeIdx + 1)
-	return astext.NewDate(timestamp)
+	block.Advance(close + 1)
+	n := astext.NewDate(valueAt(seg, 6, close, text.IdentityDecoder))
+	n.SetPos(seg.Start - seg.Padding)
+	return n
 }
-
-// --- Placeholder parser: {{text}} ---
 
 type placeholderParser struct{}
 
-func (p *placeholderParser) Trigger() []byte { return []byte{'{'} }
+func (*placeholderParser) Trigger() []byte { return []byte{'{'} }
 
-func (p *placeholderParser) Parse(parent ast.Node, block text.Reader, pc parser.Context) ast.Node {
-	line, _ := block.PeekLine()
-	if len(line) < 5 || line[0] != '{' || line[1] != '{' {
+func (*placeholderParser) Parse(_ ast.Node, block text.Reader, _ parser.Context) ast.Node {
+	line, seg := block.PeekLine()
+	if len(line) < 5 || !bytes.HasPrefix(line, []byte("{{")) {
 		return nil
 	}
-
-	rest := string(line[2:])
-	// Find unescaped }}
-	for i := 0; i < len(rest)-1; i++ {
-		if rest[i] == '\\' {
+	for i := 2; i < len(line)-1; i++ {
+		if line[i] == '\\' {
 			i++
 			continue
 		}
-		if rest[i] == '}' && rest[i+1] == '}' {
-			text := unescapeDelimiters(rest[:i], "}")
-			block.Advance(2 + i + 2) // {{ + content + }}
-			return astext.NewPlaceholder(text)
+		if line[i] == '}' && line[i+1] == '}' {
+			block.Advance(i + 2)
+			n := astext.NewPlaceholder(valueAt(seg, 2, i, delimiterDecoder{"}"}))
+			n.SetPos(seg.Start - seg.Padding)
+			return n
 		}
 	}
 	return nil
 }
 
-// --- Card parser: [card:url] ---
-
 type cardParser struct{}
 
-func (p *cardParser) Trigger() []byte { return []byte{'['} }
+func (*cardParser) Trigger() []byte { return []byte{'['} }
 
-func (p *cardParser) Parse(parent ast.Node, block text.Reader, pc parser.Context) ast.Node {
-	line, _ := block.PeekLine()
+func (*cardParser) Parse(_ ast.Node, block text.Reader, _ parser.Context) ast.Node {
+	line, seg := block.PeekLine()
 	if len(line) < 8 || string(line[:6]) != "[card:" {
 		return nil
 	}
-
-	rest := string(line[6:])
-	closeBracket := findClosingBracket(rest)
-	if closeBracket < 1 {
+	close := findClosingBracket(string(line[6:]))
+	if close < 1 {
 		return nil
 	}
-
-	url := unescapeDelimiters(rest[:closeBracket], "]")
-	block.Advance(6 + closeBracket + 1)
-	return astext.NewCard(url)
+	block.Advance(6 + close + 1)
+	n := astext.NewCard(valueAt(seg, 6, 6+close, delimiterDecoder{"]"}))
+	n.SetPos(seg.Start - seg.Padding)
+	return n
 }
-
-// --- Embed parser: [embed:url] ---
 
 type embedParser struct{}
 
-func (p *embedParser) Trigger() []byte { return []byte{'['} }
+func (*embedParser) Trigger() []byte { return []byte{'['} }
 
-func (p *embedParser) Parse(parent ast.Node, block text.Reader, pc parser.Context) ast.Node {
-	line, _ := block.PeekLine()
+func (*embedParser) Parse(_ ast.Node, block text.Reader, _ parser.Context) ast.Node {
+	line, seg := block.PeekLine()
 	if len(line) < 9 || string(line[:7]) != "[embed:" {
 		return nil
 	}
-
-	rest := string(line[7:])
-	closeBracket := findClosingBracket(rest)
-	if closeBracket < 1 {
+	close := findClosingBracket(string(line[7:]))
+	if close < 1 {
 		return nil
 	}
-
-	url := unescapeDelimiters(rest[:closeBracket], "]")
-	block.Advance(7 + closeBracket + 1)
-	return astext.NewEmbed(url)
+	block.Advance(7 + close + 1)
+	n := astext.NewEmbed(valueAt(seg, 7, 7+close, delimiterDecoder{"]"}))
+	n.SetPos(seg.Start - seg.Padding)
+	return n
 }
-
-// --- Emoji parser: :shortcode: ---
 
 type emojiParser struct{}
 
-func (p *emojiParser) Trigger() []byte { return []byte{':'} }
+func (*emojiParser) Trigger() []byte { return []byte{':'} }
 
-func (p *emojiParser) Parse(parent ast.Node, block text.Reader, pc parser.Context) ast.Node {
-	line, _ := block.PeekLine()
+func (*emojiParser) Parse(_ ast.Node, block text.Reader, _ parser.Context) ast.Node {
+	line, seg := block.PeekLine()
 	if len(line) < 3 || line[0] != ':' {
 		return nil
 	}
-
-	// Emoji shortcodes are alphanumeric with underscores and hyphens
-	rest := line[1:]
-	end := -1
-	for i := 0; i < len(rest); i++ {
-		c := rest[i]
-		if c == ':' {
-			end = i
-			break
+	for i := 1; i < len(line); i++ {
+		if line[i] == ':' {
+			if i == 1 {
+				return nil
+			}
+			block.Advance(i + 1)
+			n := astext.NewEmoji(valueAt(seg, 0, i+1, text.IdentityDecoder))
+			n.SetPos(seg.Start - seg.Padding)
+			return n
 		}
-		if !isShortcodeChar(c) {
+		if !isShortcodeChar(line[i]) {
 			return nil
 		}
 	}
-	if end < 1 {
-		return nil
-	}
-
-	shortName := ":" + string(rest[:end]) + ":"
-	block.Advance(end + 2) // : + content + :
-	return astext.NewEmoji(shortName)
+	return nil
 }
 
 func isShortcodeChar(c byte) bool {
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '+'
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-' || c == '+'
 }

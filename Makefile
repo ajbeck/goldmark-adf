@@ -1,10 +1,6 @@
 # Makefile for goldmark-adf
 #
-# This module requires Go 1.25+ with the experimental json/v2 package.
-
-# Build configuration
-GOEXPERIMENT := jsonv2
-export GOEXPERIMENT
+# This module requires Go 1.27+.
 
 # Source files for dependency tracking
 GO_FILES := $(shell find . -name '*.go' -type f)

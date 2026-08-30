@@ -3,7 +3,7 @@ package adfschema_test
 import (
 	"fmt"
 
-	"github.com/ajbeck/goldmark-adf/adfschema"
+	"github.com/ajbeck/goldmark-adf/v2/adfschema"
 )
 
 // This example demonstrates validating ADF JSON against the official Atlassian

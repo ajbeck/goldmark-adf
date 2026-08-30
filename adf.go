@@ -1,147 +1,99 @@
-//go:build goexperiment.jsonv2
-
 package adf
 
 import (
-	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/extension"
-	"github.com/yuin/goldmark/parser"
-	"github.com/yuin/goldmark/renderer"
-	"github.com/yuin/goldmark/util"
+	"bytes"
+	"io"
+
+	"github.com/yuin/goldmark/v2/parser"
+	gmrenderer "github.com/yuin/goldmark/v2/renderer"
+	"github.com/yuin/goldmark/v2/util"
 )
 
-// New creates a new goldmark.Markdown instance configured to output ADF JSON.
-func New(opts ...Option) goldmark.Markdown {
-	r := NewRenderer(opts...)
-	md := goldmark.New(
-		goldmark.WithRenderer(
-			renderer.NewRenderer(
-				renderer.WithNodeRenderers(
-					util.Prioritized(r, 1000),
-				),
-			),
-		),
-	)
-	return md
+// Markdown combines an ADF parser profile and renderer. It is safe for
+// concurrent use provided any configured ImageHandler is safe for concurrent
+// calls.
+type Markdown struct {
+	newParser func() parser.Parser
+	renderer  gmrenderer.Renderer[io.Writer]
 }
 
-// NewWithGFM creates a new goldmark.Markdown instance with GFM extensions enabled.
-// This enables parsing of tables, strikethrough, autolinks, and task lists.
-func NewWithGFM(opts ...Option) goldmark.Markdown {
-	r := NewRenderer(opts...)
-
-	// Create a custom renderer that ONLY uses our ADF renderer
-	// We don't include any HTML renderers
-	adfRenderer := renderer.NewRenderer(
-		renderer.WithNodeRenderers(
-			util.Prioritized(r, 1000),
-		),
-	)
-
-	md := goldmark.New(
-		goldmark.WithRenderer(adfRenderer),
-		goldmark.WithParserOptions(
-			parser.WithAutoHeadingID(),
-		),
-	)
-
-	// Manually add only the PARSER parts of GFM extensions
-	// (not their HTML renderers)
-	addGFMParsers(md)
-
-	// Add ADF round-trip extension parsers
-	addADFExtensions(md)
-
-	return md
+// New creates a reusable CommonMark-to-ADF converter.
+func New(opts ...Option) *Markdown {
+	return &Markdown{
+		newParser: NewParser,
+		renderer:  NewRenderer(opts...),
+	}
 }
 
-// addGFMParsers adds GFM parser extensions without their HTML renderers.
-func addGFMParsers(md goldmark.Markdown) {
-	// Table parser
-	md.Parser().AddOptions(
-		parser.WithParagraphTransformers(
-			util.Prioritized(extension.NewTableParagraphTransformer(), 200),
-		),
-	)
-
-	// Strikethrough parser
-	md.Parser().AddOptions(
-		parser.WithInlineParsers(
-			util.Prioritized(extension.NewStrikethroughParser(), 500),
-		),
-	)
-
-	// Linkify parser (autolinks)
-	md.Parser().AddOptions(
-		parser.WithInlineParsers(
-			util.Prioritized(extension.NewLinkifyParser(), 999),
-		),
-	)
-
-	// Task list parser
-	md.Parser().AddOptions(
-		parser.WithInlineParsers(
-			util.Prioritized(extension.NewTaskCheckBoxParser(), 0),
-		),
-	)
+// NewWithGFM creates a reusable GFM and ADF-round-trip-to-ADF converter.
+func NewWithGFM(opts ...Option) *Markdown {
+	return &Markdown{
+		newParser: NewWithGFMParser,
+		renderer:  NewRenderer(opts...),
+	}
 }
 
-// addADFExtensions adds ADF round-trip parser extensions.
-func addADFExtensions(md goldmark.Markdown) {
-	// Inline parsers for custom ADF syntax.
-	// Priority must be higher (lower number) than default link parser (200)
-	// so our [status:...], [card:...], [date:...], [embed:...] are tried before
-	// goldmark interprets them as link references.
-	md.Parser().AddOptions(
-		parser.WithInlineParsers(
-			util.Prioritized(&statusParser{}, 90),
-			util.Prioritized(&mentionParser{}, 91),
-			util.Prioritized(&dateParser{}, 92),
-			util.Prioritized(&placeholderParser{}, 93),
-			util.Prioritized(&cardParser{}, 94),
-			util.Prioritized(&embedParser{}, 95),
-			util.Prioritized(&emojiParser{}, 96),
-		),
-	)
+// Convert parses source and writes its ADF JSON representation to w.
+func (m *Markdown) Convert(source []byte, w io.Writer) error {
+	doc := m.newParser().Parse(source)
+	return m.renderer.Render(w, source, doc)
+}
 
-	// AST transformers for block-level conversions.
-	md.Parser().AddOptions(
+// NewParser creates a CommonMark parser with no GFM or ADF-round-trip
+// extensions.
+func NewParser() parser.Parser {
+	return parser.New()
+}
+
+// NewWithGFMParser creates a parser with GFM and ADF-round-trip extensions.
+func NewWithGFMParser() parser.Parser {
+	return parser.New(parser.WithExtensions(newSafeGFMParser(), NewRoundTripParser()))
+}
+
+// RoundTripParser is the parser extension for goldmark-adf's custom ADF
+// Markdown interchange syntax.
+var RoundTripParser parser.Extension = NewRoundTripParser()
+
+// NewRoundTripParser returns a fresh parser extension for goldmark-adf's
+// custom ADF Markdown interchange syntax.
+func NewRoundTripParser() parser.Extension {
+	return &roundTripParser{}
+}
+
+type roundTripParser struct{}
+
+func (*roundTripParser) ParserOptions(*parser.Config) []parser.Option {
+	return []parser.Option{
+		parser.WithInlineParsers(
+			util.Prioritized[parser.InlineParser](&statusParser{}, 90),
+			util.Prioritized[parser.InlineParser](&mentionParser{}, 91),
+			util.Prioritized[parser.InlineParser](&dateParser{}, 92),
+			util.Prioritized[parser.InlineParser](&placeholderParser{}, 93),
+			util.Prioritized[parser.InlineParser](&cardParser{}, 94),
+			util.Prioritized[parser.InlineParser](&embedParser{}, 95),
+			util.Prioritized[parser.InlineParser](&emojiParser{}, 96),
+		),
 		parser.WithASTTransformers(
-			util.Prioritized(&panelTransformer{}, 100),
-			util.Prioritized(&decisionTransformer{}, 101),
+			util.Prioritized[parser.ASTTransformer](&panelTransformer{}, 100),
+			util.Prioritized[parser.ASTTransformer](&decisionTransformer{}, 101),
 		),
-	)
+	}
 }
 
-// Convert is a convenience function that converts Markdown to ADF JSON.
-// It creates a new goldmark instance for each call, which is suitable for
-// simple use cases. For better performance with multiple conversions,
-// create a goldmark instance with New() and reuse it.
+// Convert converts CommonMark source to ADF JSON.
 func Convert(source []byte) ([]byte, error) {
-	var buf = make([]byte, 0, len(source)*2)
-	w := &bytesWriter{buf: buf}
-	if err := New().Convert(source, w); err != nil {
+	var output bytes.Buffer
+	if err := New().Convert(source, &output); err != nil {
 		return nil, err
 	}
-	return w.buf, nil
+	return output.Bytes(), nil
 }
 
-// ConvertWithGFM is like Convert but with GFM extensions enabled.
+// ConvertWithGFM converts GFM and ADF-round-trip source to ADF JSON.
 func ConvertWithGFM(source []byte) ([]byte, error) {
-	var buf = make([]byte, 0, len(source)*2)
-	w := &bytesWriter{buf: buf}
-	if err := NewWithGFM().Convert(source, w); err != nil {
+	var output bytes.Buffer
+	if err := NewWithGFM().Convert(source, &output); err != nil {
 		return nil, err
 	}
-	return w.buf, nil
-}
-
-// bytesWriter is a simple io.Writer that appends to a byte slice.
-type bytesWriter struct {
-	buf []byte
-}
-
-func (w *bytesWriter) Write(p []byte) (n int, err error) {
-	w.buf = append(w.buf, p...)
-	return len(p), nil
+	return output.Bytes(), nil
 }

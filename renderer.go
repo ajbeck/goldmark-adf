@@ -1,176 +1,167 @@
-//go:build goexperiment.jsonv2
-
 package adf
 
 import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"fmt"
+	"io"
+	"strings"
 
-	"github.com/ajbeck/goldmark-adf/astext"
-	"github.com/yuin/goldmark/ast"
-	extast "github.com/yuin/goldmark/extension/ast"
-	"github.com/yuin/goldmark/renderer"
-	"github.com/yuin/goldmark/util"
+	"github.com/ajbeck/goldmark-adf/v2/astext"
+	"github.com/yuin/goldmark/v2/ast"
+	"github.com/yuin/goldmark/v2/extension"
+	extast "github.com/yuin/goldmark/v2/extension/ast"
+	"github.com/yuin/goldmark/v2/renderer"
 )
 
-// Renderer is a goldmark [renderer.NodeRenderer] that outputs Atlassian Document
-// Format (ADF) JSON.
-//
-// The Renderer maintains internal state during the AST walk, using a node stack
-// to track the current position in the ADF document tree and a mark stack to
-// accumulate active text marks (bold, italic, links, etc.). This state is reset
-// for each new document.
-//
-// Use [NewRenderer] to create a Renderer, or use the higher-level [New] and
-// [NewWithGFM] functions which configure a complete goldmark instance.
+// Renderer renders Goldmark's AST as Atlassian Document Format (ADF) JSON.
+// A Renderer is safe for concurrent use after construction, provided a
+// configured ImageHandler is safe for concurrent calls.
 type Renderer struct {
-	config Config
-
-	// State for rendering
-	document      *Document
-	nodeStack     []*Node
-	markStack     []Mark
-	openTaskItems map[ast.Node]bool
+	*renderer.Helper[io.Writer, Config]
 }
 
-// NewRenderer creates a new ADF renderer with the given options.
-func NewRenderer(opts ...Option) renderer.NodeRenderer {
-	r := &Renderer{
-		config: NewConfig(),
-	}
+type renderState struct {
+	document            *Document
+	nodeStack           []*Node
+	markStack           []Mark
+	openTaskItems       map[ast.Node]bool
+	suppressedParagraph map[ast.Node]bool
+	splitParagraph      map[ast.Node]bool
+}
+
+var renderStateKey = renderer.NewContextKey()
+
+// NewRenderer creates a reusable ADF renderer with the given options.
+func NewRenderer(opts ...Option) *Renderer {
+	r := &Renderer{}
+	builder := renderer.HelperBuilder[io.Writer, Config]{}
+	options := make([]renderer.Option[Config], 0, len(opts)+1)
 	for _, opt := range opts {
-		opt.SetADFOption(&r.config)
+		options = append(options, opt)
 	}
+	options = append(options, renderer.WithNodeRenderers[io.Writer, Config](r.nodeRenderers()))
+	r.Helper = builder.Options(options...).OnBeforeRender(func(_ io.Writer, _ []byte, _ ast.Node, rc renderer.Context) error {
+		if err := r.Config().validate(); err != nil {
+			return err
+		}
+		rc.Set(renderStateKey, newRenderState())
+		return nil
+	}).Build()
 	return r
 }
 
-// RegisterFuncs implements renderer.NodeRenderer.
-func (r *Renderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
-	// Block nodes
-	reg.Register(ast.KindDocument, r.renderDocument)
-	reg.Register(ast.KindHeading, r.renderHeading)
-	reg.Register(ast.KindBlockquote, r.renderBlockquote)
-	reg.Register(ast.KindCodeBlock, r.renderCodeBlock)
-	reg.Register(ast.KindFencedCodeBlock, r.renderFencedCodeBlock)
-	reg.Register(ast.KindHTMLBlock, r.renderHTMLBlock)
-	reg.Register(ast.KindList, r.renderList)
-	reg.Register(ast.KindListItem, r.renderListItem)
-	reg.Register(ast.KindParagraph, r.renderParagraph)
-	reg.Register(ast.KindTextBlock, r.renderTextBlock)
-	reg.Register(ast.KindThematicBreak, r.renderThematicBreak)
-
-	// Inline nodes
-	reg.Register(ast.KindAutoLink, r.renderAutoLink)
-	reg.Register(ast.KindCodeSpan, r.renderCodeSpan)
-	reg.Register(ast.KindEmphasis, r.renderEmphasis)
-	reg.Register(ast.KindImage, r.renderImage)
-	reg.Register(ast.KindLink, r.renderLink)
-	reg.Register(ast.KindRawHTML, r.renderRawHTML)
-	reg.Register(ast.KindText, r.renderText)
-	reg.Register(ast.KindString, r.renderString)
-
-	// GFM extension nodes
-	reg.Register(extast.KindTable, r.renderTable)
-	reg.Register(extast.KindTableHeader, r.renderTableHeader)
-	reg.Register(extast.KindTableRow, r.renderTableRow)
-	reg.Register(extast.KindTableCell, r.renderTableCell)
-	reg.Register(extast.KindStrikethrough, r.renderStrikethrough)
-	reg.Register(extast.KindTaskCheckBox, r.renderTaskCheckBox)
-
-	// ADF round-trip extension nodes (inline)
-	reg.Register(astext.KindStatus, r.renderStatus)
-	reg.Register(astext.KindMention, r.renderMention)
-	reg.Register(astext.KindDate, r.renderDate)
-	reg.Register(astext.KindPlaceholder, r.renderPlaceholder)
-	reg.Register(astext.KindCard, r.renderCard)
-	reg.Register(astext.KindEmbed, r.renderEmbed)
-	reg.Register(astext.KindEmoji, r.renderEmoji)
-
-	// ADF round-trip extension nodes (block)
-	reg.Register(astext.KindPanel, r.renderPanel)
-	reg.Register(astext.KindDecisionList, r.renderDecisionList)
-	reg.Register(astext.KindDecisionItem, r.renderDecisionItem)
+func newRenderState() *renderState {
+	return &renderState{
+		document:            NewDocument(),
+		openTaskItems:       make(map[ast.Node]bool),
+		suppressedParagraph: make(map[ast.Node]bool),
+		splitParagraph:      make(map[ast.Node]bool),
+	}
 }
 
-// reset prepares the renderer for a new document.
-func (r *Renderer) reset() {
-	r.document = NewDocument()
-	r.nodeStack = []*Node{}
-	r.markStack = []Mark{}
-	r.openTaskItems = map[ast.Node]bool{}
+func (r *Renderer) nodeRenderers() map[ast.NodeKind]renderer.NodeRenderer[io.Writer] {
+	return map[ast.NodeKind]renderer.NodeRenderer[io.Writer]{
+		ast.KindDocument:      renderer.NodeRendererFunc[io.Writer](r.renderDocument),
+		ast.KindHeading:       renderer.NodeRendererFunc[io.Writer](r.renderHeading),
+		ast.KindBlockquote:    renderer.NodeRendererFunc[io.Writer](r.renderBlockquote),
+		ast.KindCodeBlock:     renderer.NodeRendererFunc[io.Writer](r.renderCodeBlock),
+		ast.KindHTMLBlock:     renderer.NodeRendererFunc[io.Writer](r.renderHTMLBlock),
+		ast.KindList:          renderer.NodeRendererFunc[io.Writer](r.renderList),
+		ast.KindListItem:      renderer.NodeRendererFunc[io.Writer](r.renderListItem),
+		ast.KindParagraph:     renderer.NodeRendererFunc[io.Writer](r.renderParagraph),
+		ast.KindThematicBreak: renderer.NodeRendererFunc[io.Writer](r.renderThematicBreak),
+
+		ast.KindAutoLink: renderer.NodeRendererFunc[io.Writer](r.renderAutoLink),
+		ast.KindCodeSpan: renderer.NodeRendererFunc[io.Writer](r.renderCodeSpan),
+		ast.KindEmphasis: renderer.NodeRendererFunc[io.Writer](r.renderEmphasis),
+		ast.KindStrong:   renderer.NodeRendererFunc[io.Writer](r.renderStrong),
+		ast.KindImage:    renderer.NodeRendererFunc[io.Writer](r.renderImage),
+		ast.KindLink:     renderer.NodeRendererFunc[io.Writer](r.renderLink),
+		ast.KindRawHTML:  renderer.NodeRendererFunc[io.Writer](r.renderRawHTML),
+		ast.KindText:     renderer.NodeRendererFunc[io.Writer](r.renderText),
+
+		extast.KindTable:         renderer.NodeRendererFunc[io.Writer](r.renderTable),
+		extast.KindTableHeader:   renderer.NodeRendererFunc[io.Writer](r.renderTableHeader),
+		extast.KindTableBody:     renderer.NodeRendererFunc[io.Writer](r.renderTableBody),
+		extast.KindTableRow:      renderer.NodeRendererFunc[io.Writer](r.renderTableRow),
+		extast.KindTableCell:     renderer.NodeRendererFunc[io.Writer](r.renderTableCell),
+		extast.KindStrikethrough: renderer.NodeRendererFunc[io.Writer](r.renderStrikethrough),
+
+		astext.KindStatus:       renderer.NodeRendererFunc[io.Writer](r.renderStatus),
+		astext.KindMention:      renderer.NodeRendererFunc[io.Writer](r.renderMention),
+		astext.KindDate:         renderer.NodeRendererFunc[io.Writer](r.renderDate),
+		astext.KindPlaceholder:  renderer.NodeRendererFunc[io.Writer](r.renderPlaceholder),
+		astext.KindCard:         renderer.NodeRendererFunc[io.Writer](r.renderCard),
+		astext.KindEmbed:        renderer.NodeRendererFunc[io.Writer](r.renderEmbed),
+		astext.KindEmoji:        renderer.NodeRendererFunc[io.Writer](r.renderEmoji),
+		astext.KindPanel:        renderer.NodeRendererFunc[io.Writer](r.renderPanel),
+		astext.KindDecisionList: renderer.NodeRendererFunc[io.Writer](r.renderDecisionList),
+		astext.KindDecisionItem: renderer.NodeRendererFunc[io.Writer](r.renderDecisionItem),
+	}
 }
 
-// currentNode returns the current node being built, or nil if at document level.
-func (r *Renderer) currentNode() *Node {
-	if len(r.nodeStack) == 0 {
+func state(rc renderer.Context) *renderState {
+	s, ok := rc.Get(renderStateKey).(*renderState)
+	if !ok || s == nil {
+		panic("adf: missing render state")
+	}
+	return s
+}
+
+func (s *renderState) currentNode() *Node {
+	if len(s.nodeStack) == 0 {
 		return nil
 	}
-	return r.nodeStack[len(r.nodeStack)-1]
+	return s.nodeStack[len(s.nodeStack)-1]
 }
 
-// pushNode pushes a new node onto the stack.
-func (r *Renderer) pushNode(n *Node) {
-	r.nodeStack = append(r.nodeStack, n)
-}
+func (s *renderState) pushNode(n *Node) { s.nodeStack = append(s.nodeStack, n) }
 
-// popNode pops the current node from the stack and appends it to its parent.
-func (r *Renderer) popNode() {
-	if len(r.nodeStack) == 0 {
+func (s *renderState) popNode() {
+	if len(s.nodeStack) == 0 {
 		return
 	}
-	n := r.nodeStack[len(r.nodeStack)-1]
-	r.nodeStack = r.nodeStack[:len(r.nodeStack)-1]
-
-	if len(r.nodeStack) > 0 {
-		parent := r.nodeStack[len(r.nodeStack)-1]
+	n := s.nodeStack[len(s.nodeStack)-1]
+	s.nodeStack = s.nodeStack[:len(s.nodeStack)-1]
+	if parent := s.currentNode(); parent != nil {
 		parent.AppendChild(*n)
-	} else {
-		r.document.Content = append(r.document.Content, *n)
+		return
+	}
+	s.document.Content = append(s.document.Content, *n)
+}
+
+func (s *renderState) discardCurrentNode() {
+	if len(s.nodeStack) != 0 {
+		s.nodeStack = s.nodeStack[:len(s.nodeStack)-1]
 	}
 }
 
-// discardCurrentNode removes the current node from the stack without appending it.
-// Used to discard empty paragraphs during image handling.
-func (r *Renderer) discardCurrentNode() {
-	if len(r.nodeStack) > 0 {
-		r.nodeStack = r.nodeStack[:len(r.nodeStack)-1]
+func (s *renderState) appendNode(n Node) {
+	if parent := s.currentNode(); parent != nil {
+		parent.AppendChild(n)
+		return
+	}
+	s.document.Content = append(s.document.Content, n)
+}
+
+func (s *renderState) pushMark(m Mark) { s.markStack = append(s.markStack, m) }
+
+func (s *renderState) popMark() {
+	if len(s.markStack) != 0 {
+		s.markStack = s.markStack[:len(s.markStack)-1]
 	}
 }
 
-// appendToCurrentOrDocument appends a node to the current node or document.
-func (r *Renderer) appendToCurrentOrDocument(n Node) {
-	if len(r.nodeStack) > 0 {
-		r.nodeStack[len(r.nodeStack)-1].AppendChild(n)
-	} else {
-		r.document.Content = append(r.document.Content, n)
-	}
-}
-
-// pushMark adds a mark to the current mark stack.
-func (r *Renderer) pushMark(m Mark) {
-	r.markStack = append(r.markStack, m)
-}
-
-// popMark removes the last mark from the stack.
-func (r *Renderer) popMark() {
-	if len(r.markStack) > 0 {
-		r.markStack = r.markStack[:len(r.markStack)-1]
-	}
-}
-
-// currentMarks returns a copy of the current marks.
-func (r *Renderer) currentMarks() []Mark {
-	if len(r.markStack) == 0 {
+func (s *renderState) marks() []Mark {
+	if len(s.markStack) == 0 {
 		return nil
 	}
-	marks := make([]Mark, len(r.markStack))
-	copy(marks, r.markStack)
-	return normalizeMarks(marks)
+	return normalizeMarks(append([]Mark(nil), s.markStack...))
 }
 
-// normalizeMarks enforces ADF mark-combination constraints. In particular,
-// code may only be combined with link, so code takes precedence over all other
-// formatting marks when Markdown nests them together.
+// normalizeMarks enforces ADF's code-mark restriction: code can only be
+// combined with a link mark, so other formatting is removed when code is set.
 func normalizeMarks(marks []Mark) []Mark {
 	hasCode := false
 	for _, mark := range marks {
@@ -182,7 +173,6 @@ func normalizeMarks(marks []Mark) []Mark {
 	if !hasCode {
 		return marks
 	}
-
 	normalized := make([]Mark, 0, 2)
 	for _, mark := range marks {
 		if mark.Type == "code" || mark.Type == "link" {
@@ -192,606 +182,531 @@ func normalizeMarks(marks []Mark) []Mark {
 	return normalized
 }
 
-// Block node renderers
-
-func (r *Renderer) renderDocument(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *Renderer) renderDocument(w io.Writer, _ []byte, _ ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
 	if entering {
-		r.reset()
+		return ast.WalkContinue, nil
+	}
+	data, err := json.Marshal(state(rc).document, jsontext.WithIndent("  "))
+	if err != nil {
+		return ast.WalkStop, err
+	}
+	n, err := w.Write(data)
+	if err != nil {
+		return ast.WalkStop, err
+	}
+	if n != len(data) {
+		return ast.WalkStop, io.ErrShortWrite
+	}
+	return ast.WalkContinue, nil
+}
+
+func (r *Renderer) renderHeading(_ io.Writer, _ []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
+	s := state(rc)
+	if entering {
+		s.pushNode(NewHeading(node.(*ast.Heading).Level))
 	} else {
-		// Write the final JSON output
-		data, err := json.Marshal(r.document, jsontext.WithIndent("  "))
-		if err != nil {
-			return ast.WalkStop, err
-		}
-		_, err = w.Write(data)
-		if err != nil {
-			return ast.WalkStop, err
-		}
+		s.popNode()
 	}
 	return ast.WalkContinue, nil
 }
 
-func (r *Renderer) renderHeading(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *Renderer) renderBlockquote(_ io.Writer, _ []byte, _ ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
+	s := state(rc)
 	if entering {
-		n := node.(*ast.Heading)
-		r.pushNode(NewHeading(n.Level))
+		s.pushNode(NewBlockquote())
 	} else {
-		r.popNode()
+		s.popNode()
 	}
 	return ast.WalkContinue, nil
 }
 
-func (r *Renderer) renderBlockquote(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if entering {
-		r.pushNode(NewBlockquote())
-	} else {
-		r.popNode()
+func (r *Renderer) renderCodeBlock(_ io.Writer, source []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkContinue, nil
 	}
-	return ast.WalkContinue, nil
-}
-
-func (r *Renderer) renderCodeBlock(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if entering {
-		n := NewCodeBlock("")
-		// Collect all lines as text content
-		lines := node.Lines()
-		var text string
-		for i := 0; i < lines.Len(); i++ {
-			line := lines.At(i)
-			text += string(line.Value(source))
-		}
-		if text != "" {
-			n.AppendChild(*NewText(text))
-		}
-		r.appendToCurrentOrDocument(*n)
-		return ast.WalkSkipChildren, nil
+	n := node.(*ast.CodeBlock)
+	language, _ := n.Language(source)
+	code := NewCodeBlock(language)
+	if value := n.Value.Str(source); value != "" {
+		code.AppendChild(*NewText(value))
 	}
-	return ast.WalkContinue, nil
-}
-
-func (r *Renderer) renderFencedCodeBlock(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if entering {
-		n := node.(*ast.FencedCodeBlock)
-		lang := ""
-		if n.Info != nil {
-			lang = string(n.Language(source))
-		}
-		codeNode := NewCodeBlock(lang)
-		// Collect all lines as text content
-		lines := n.Lines()
-		var text string
-		for i := 0; i < lines.Len(); i++ {
-			line := lines.At(i)
-			text += string(line.Value(source))
-		}
-		if text != "" {
-			codeNode.AppendChild(*NewText(text))
-		}
-		r.appendToCurrentOrDocument(*codeNode)
-		return ast.WalkSkipChildren, nil
-	}
-	return ast.WalkContinue, nil
-}
-
-func (r *Renderer) renderHTMLBlock(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	// HTML blocks are not supported in ADF, skip them
+	state(rc).appendNode(*code)
 	return ast.WalkSkipChildren, nil
 }
 
-func (r *Renderer) renderList(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+// ADF has no raw HTML nodes. Blocks are discarded; inline text adjacent to raw
+// tags is preserved by renderRawHTML's no-op behavior.
+func (r *Renderer) renderHTMLBlock(_ io.Writer, _ []byte, _ ast.Node, _ bool, _ renderer.Context) (ast.WalkStatus, error) {
+	return ast.WalkSkipChildren, nil
+}
+
+func (r *Renderer) renderList(_ io.Writer, _ []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
+	s := state(rc)
 	list := node.(*ast.List)
 	if entering {
 		if isTaskList(list) {
-			// ADF taskItem nodes can only contain inline content. Goldmark nests a
-			// child list beneath its parent ListItem, so close the parent task item
-			// before emitting the child task list as its sibling.
-			if parentItem, ok := list.Parent().(*ast.ListItem); ok && r.openTaskItems[parentItem] {
-				r.popNode()
-				r.openTaskItems[parentItem] = false
+			if parent, ok := list.Parent().(*ast.ListItem); ok && s.openTaskItems[parent] {
+				s.popNode()
+				s.openTaskItems[parent] = false
 			}
-			r.pushNode(NewTaskList())
+			s.pushNode(NewTaskList())
 		} else if list.IsOrdered() {
-			r.pushNode(NewOrderedList(list.Start))
+			s.pushNode(NewOrderedList(list.Start))
 		} else {
-			r.pushNode(NewBulletList())
+			s.pushNode(NewBulletList())
 		}
 	} else {
-		r.popNode()
+		s.popNode()
 	}
 	return ast.WalkContinue, nil
 }
 
-func (r *Renderer) renderListItem(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *Renderer) renderListItem(_ io.Writer, _ []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
+	s := state(rc)
 	item := node.(*ast.ListItem)
 	if list, ok := item.Parent().(*ast.List); ok && isTaskList(list) {
 		if entering {
-			checkBox, _ := taskCheckBox(item)
-			state := "TODO"
-			if checkBox.IsChecked {
-				state = "DONE"
+			status, _ := extension.TaskStatusOf(item)
+			adfStatus := "TODO"
+			if status == extension.TaskStatusCompleted {
+				adfStatus = "DONE"
 			}
-			r.pushNode(NewTaskItem(state))
-			r.openTaskItems[item] = true
-		} else if r.openTaskItems[item] {
-			r.popNode()
-			r.openTaskItems[item] = false
+			s.pushNode(NewTaskItem(adfStatus))
+			s.openTaskItems[item] = true
+		} else if s.openTaskItems[item] {
+			s.popNode()
+			s.openTaskItems[item] = false
 		}
 		return ast.WalkContinue, nil
 	}
-
 	if entering {
-		r.pushNode(NewListItem())
+		s.pushNode(NewListItem())
 	} else {
-		r.popNode()
+		s.popNode()
 	}
 	return ast.WalkContinue, nil
 }
 
-func (r *Renderer) renderParagraph(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *Renderer) renderParagraph(_ io.Writer, _ []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
+	s := state(rc)
+	if isTaskParagraph(node) {
+		return ast.WalkContinue, nil
+	}
 	if entering {
-		r.pushNode(NewParagraph())
-	} else {
-		// Check if the paragraph is empty and discard it if so
-		// This handles cases where images split paragraphs and leave empty ones
-		current := r.currentNode()
-		if current != nil && current.Type == "paragraph" && len(current.Content) == 0 {
-			r.discardCurrentNode()
-		} else {
-			r.popNode()
+		s.pushNode(NewParagraph())
+		if item, ok := node.Parent().(*ast.ListItem); ok && extension.IsTask(item) {
+			status, _ := extension.TaskStatusOf(item)
+			prefix := "[ ] "
+			if status == extension.TaskStatusCompleted {
+				prefix = "[x] "
+			}
+			s.appendNode(*NewText(prefix))
 		}
+		return ast.WalkContinue, nil
 	}
-	return ast.WalkContinue, nil
-}
-
-func (r *Renderer) renderTextBlock(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if parentItem, ok := node.Parent().(*ast.ListItem); ok {
-		if list, ok := parentItem.Parent().(*ast.List); ok && isTaskList(list) {
-			return ast.WalkContinue, nil
-		}
+	if s.suppressedParagraph[node] {
+		delete(s.suppressedParagraph, node)
+		return ast.WalkContinue, nil
 	}
-
-	// TextBlock is a lightweight paragraph used in tight lists
-	// In ADF, we still need to wrap content in a paragraph
-	if entering {
-		r.pushNode(NewParagraph())
+	if current := s.currentNode(); current != nil && current.Type == "paragraph" && len(current.Content) == 0 && s.splitParagraph[node] {
+		delete(s.splitParagraph, node)
+		s.discardCurrentNode()
 	} else {
-		r.popNode()
+		s.popNode()
 	}
 	return ast.WalkContinue, nil
 }
 
-func (r *Renderer) renderThematicBreak(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *Renderer) renderThematicBreak(_ io.Writer, _ []byte, _ ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
 	if entering {
-		r.appendToCurrentOrDocument(*NewRule())
+		state(rc).appendNode(*NewRule())
 	}
 	return ast.WalkContinue, nil
 }
 
-// Inline node renderers
-
-func (r *Renderer) renderAutoLink(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *Renderer) renderAutoLink(_ io.Writer, source []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
 	if entering {
 		n := node.(*ast.AutoLink)
-		url := string(n.URL(source))
-		label := string(n.Label(source))
-
-		textNode := NewTextWithMarks(label, []Mark{NewLinkMark(url, "")})
-		r.appendToCurrentOrDocument(*textNode)
+		state(rc).appendNode(*NewTextWithMarks(n.Label.Value(source), []Mark{NewLinkMark(n.Destination.Value(source), "")}))
 		return ast.WalkSkipChildren, nil
 	}
 	return ast.WalkContinue, nil
 }
 
-func (r *Renderer) renderCodeSpan(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *Renderer) renderCodeSpan(_ io.Writer, source []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
 	if entering {
-		r.pushMark(NewCodeMark())
-	} else {
-		r.popMark()
+		s := state(rc)
+		marks := append(s.marks(), NewCodeMark())
+		s.appendNode(*NewTextWithMarks(node.(*ast.CodeSpan).Value.Value(source), normalizeMarks(marks)))
+		return ast.WalkSkipChildren, nil
 	}
 	return ast.WalkContinue, nil
 }
 
-func (r *Renderer) renderEmphasis(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	n := node.(*ast.Emphasis)
+func (r *Renderer) renderEmphasis(_ io.Writer, _ []byte, _ ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
 	if entering {
-		if n.Level == 2 {
-			r.pushMark(NewStrongMark())
-		} else {
-			r.pushMark(NewEmMark())
-		}
+		state(rc).pushMark(NewEmMark())
 	} else {
-		r.popMark()
+		state(rc).popMark()
 	}
 	return ast.WalkContinue, nil
 }
 
-func (r *Renderer) renderImage(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *Renderer) renderStrong(_ io.Writer, _ []byte, _ ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
+	if entering {
+		state(rc).pushMark(NewStrongMark())
+	} else {
+		state(rc).popMark()
+	}
+	return ast.WalkContinue, nil
+}
+
+func (r *Renderer) renderImage(_ io.Writer, source []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
 	if !entering {
 		return ast.WalkContinue, nil
 	}
 	n := node.(*ast.Image)
-	dest := string(n.Destination)
-
-	// Get alt text from children
-	alt := ""
-	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
-		if t, ok := c.(*ast.Text); ok {
-			alt += string(t.Segment.Value(source))
+	image := Image{Destination: n.Destination.Value(source), Alt: inlineText(n, source), Title: n.Title.Value(source)}
+	if image.Alt == "" {
+		image.Alt = image.Destination
+	}
+	s := state(rc)
+	if handler := r.Config().ImageHandler; handler != nil {
+		result, err := handler(image)
+		if err != nil {
+			return ast.WalkStop, err
 		}
+		if result.Node.Type == "" {
+			return ast.WalkStop, fmt.Errorf("adf: ImageHandler returned a node with no type")
+		}
+		switch result.Placement {
+		case ImageInline:
+			s.appendNode(result.Node)
+		case ImageBlock:
+			r.appendBlockNode(s, result.Node, node)
+		default:
+			return ast.WalkStop, fmt.Errorf("adf: ImageHandler returned unknown image placement %d", result.Placement)
+		}
+		return ast.WalkSkipChildren, nil
 	}
-	if alt == "" {
-		alt = dest
-	}
-
-	title := ""
-	if n.Title != nil {
-		title = string(n.Title)
-	}
-
-	// taskItem content only permits inline nodes, so external media must fall
-	// back to linked text even when external media is otherwise enabled.
-	if r.config.ExternalMedia && (r.currentNode() == nil || r.currentNode().Type != "taskItem") {
-		// Handle external media with paragraph splitting
-		r.renderExternalMedia(dest, alt, title)
+	if r.Config().ExternalMedia && (s.currentNode() == nil || s.currentNode().Type != "taskItem") {
+		r.appendBlockNode(s, r.externalMediaNode(image), node)
 	} else {
-		// Fallback: convert image to a link
-		textNode := NewTextWithMarks(alt, []Mark{NewLinkMark(dest, title)})
-		r.appendToCurrentOrDocument(*textNode)
+		s.appendNode(*NewTextWithMarks(image.Alt, []Mark{NewLinkMark(image.Destination, image.Title)}))
 	}
-
 	return ast.WalkSkipChildren, nil
 }
 
-// renderExternalMedia renders an image as an external media node.
-// If we're inside a paragraph, it splits the paragraph around the image.
-func (r *Renderer) renderExternalMedia(url, alt, title string) {
-	// Check if we're inside a paragraph
-	current := r.currentNode()
-	if current != nil && current.Type == "paragraph" {
-		// If the paragraph has content, pop it (appends to parent)
-		// If the paragraph is empty, just discard it
-		if len(current.Content) > 0 {
-			r.popNode()
-		} else {
-			r.discardCurrentNode()
+func inlineText(node ast.Node, source []byte) string {
+	var out strings.Builder
+	_ = ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if entering {
+			if text, ok := n.(*ast.Text); ok {
+				out.WriteString(text.Value.Value(source))
+			}
 		}
-
-		// Emit the mediaSingle with media (and caption if title present)
-		r.emitMediaSingle(url, alt, title)
-
-		// Push a new empty paragraph for remaining content
-		r.pushNode(NewParagraph())
-	} else {
-		// Not in a paragraph, just emit mediaSingle directly
-		r.emitMediaSingle(url, alt, title)
-	}
+		return ast.WalkContinue, nil
+	})
+	return out.String()
 }
 
-// emitMediaSingle creates and appends a mediaSingle node with the given media content.
-func (r *Renderer) emitMediaSingle(url, alt, title string) {
-	layout := r.config.ImageLayout
-	if layout == "" {
-		layout = "center"
-	}
-
-	mediaSingle := NewMediaSingle(layout)
-	media := NewExternalMedia(url, alt)
-	mediaSingle.AppendChild(*media)
-
-	// Add caption if title is provided
-	if title != "" {
+func (r *Renderer) externalMediaNode(image Image) Node {
+	mediaSingle := NewMediaSingle(string(r.Config().ImageLayout))
+	mediaSingle.AppendChild(*NewExternalMedia(image.Destination, image.Alt))
+	if image.Title != "" {
 		caption := NewCaption()
-		caption.AppendChild(*NewText(title))
+		caption.AppendChild(*NewText(image.Title))
 		mediaSingle.AppendChild(*caption)
 	}
-
-	r.appendToCurrentOrDocument(*mediaSingle)
+	return *mediaSingle
 }
 
-func (r *Renderer) renderLink(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	n := node.(*ast.Link)
-	if entering {
-		title := ""
-		if n.Title != nil {
-			title = string(n.Title)
+// appendBlockNode splits a surrounding paragraph so block content is a sibling
+// of the text before and after the source image.
+func (r *Renderer) appendBlockNode(s *renderState, node Node, sourceNode ast.Node) {
+	if current := s.currentNode(); current != nil && current.Type == "paragraph" {
+		if paragraph := enclosingParagraph(sourceNode); paragraph != nil {
+			s.splitParagraph[paragraph] = true
 		}
-		r.pushMark(NewLinkMark(string(n.Destination), title))
+		if len(current.Content) == 0 {
+			s.discardCurrentNode()
+		} else {
+			s.popNode()
+		}
+		s.appendNode(node)
+		s.pushNode(NewParagraph())
+		return
+	}
+	s.appendNode(node)
+}
+
+func enclosingParagraph(node ast.Node) *ast.Paragraph {
+	for node != nil {
+		if paragraph, ok := node.(*ast.Paragraph); ok {
+			return paragraph
+		}
+		node = node.Parent()
+	}
+	return nil
+}
+
+func (r *Renderer) renderLink(_ io.Writer, source []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
+	if entering {
+		n := node.(*ast.Link)
+		state(rc).pushMark(NewLinkMark(n.Destination.Value(source), n.Title.Value(source)))
 	} else {
-		r.popMark()
+		state(rc).popMark()
 	}
 	return ast.WalkContinue, nil
 }
 
-func (r *Renderer) renderRawHTML(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	// Raw HTML is not supported in ADF, skip it
+func (r *Renderer) renderRawHTML(_ io.Writer, _ []byte, _ ast.Node, _ bool, _ renderer.Context) (ast.WalkStatus, error) {
 	return ast.WalkSkipChildren, nil
 }
 
-func (r *Renderer) renderText(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *Renderer) renderText(_ io.Writer, source []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
 	if !entering {
 		return ast.WalkContinue, nil
 	}
 	n := node.(*ast.Text)
-	segment := n.Segment
-	text := string(segment.Value(source))
-
-	if text != "" {
-		marks := r.currentMarks()
-		var textNode *Node
-		if len(marks) > 0 {
-			textNode = NewTextWithMarks(text, marks)
+	s := state(rc)
+	if value := n.Value.Value(source); value != "" {
+		if marks := s.marks(); len(marks) != 0 {
+			s.appendNode(*NewTextWithMarks(value, marks))
 		} else {
-			textNode = NewText(text)
+			s.appendNode(*NewText(value))
 		}
-		r.appendToCurrentOrDocument(*textNode)
 	}
-
-	// Handle hard line break
 	if n.HardLineBreak() {
-		r.appendToCurrentOrDocument(*NewHardBreak())
+		s.appendNode(*NewHardBreak())
 	}
-
 	return ast.WalkContinue, nil
 }
 
-func (r *Renderer) renderString(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if !entering {
-		return ast.WalkContinue, nil
+func (r *Renderer) renderTable(_ io.Writer, _ []byte, _ ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
+	if entering {
+		table := NewTable()
+		table.Attrs["layout"] = string(r.Config().TableLayout)
+		state(rc).pushNode(table)
+	} else {
+		state(rc).popNode()
 	}
-	n := node.(*ast.String)
-	text := string(n.Value)
+	return ast.WalkContinue, nil
+}
 
-	if text != "" {
-		marks := r.currentMarks()
-		var textNode *Node
-		if len(marks) > 0 {
-			textNode = NewTextWithMarks(text, marks)
+func (r *Renderer) renderTableHeader(_ io.Writer, _ []byte, _ ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
+	if entering {
+		state(rc).pushNode(NewTableRow())
+	} else {
+		state(rc).popNode()
+	}
+	return ast.WalkContinue, nil
+}
+
+// TableBody is only an AST grouping node; its rows attach directly to the table.
+func (r *Renderer) renderTableBody(_ io.Writer, _ []byte, _ ast.Node, _ bool, _ renderer.Context) (ast.WalkStatus, error) {
+	return ast.WalkContinue, nil
+}
+
+func (r *Renderer) renderTableRow(_ io.Writer, _ []byte, _ ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
+	if entering {
+		state(rc).pushNode(NewTableRow())
+	} else {
+		state(rc).popNode()
+	}
+	return ast.WalkContinue, nil
+}
+
+func (r *Renderer) renderTableCell(_ io.Writer, _ []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
+	s := state(rc)
+	if entering {
+		if _, header := node.Parent().(*extast.TableHeader); header {
+			s.pushNode(NewTableHeader())
 		} else {
-			textNode = NewText(text)
+			s.pushNode(NewTableCell())
 		}
-		r.appendToCurrentOrDocument(*textNode)
+		s.pushNode(NewParagraph())
+	} else {
+		s.popNode()
+		s.popNode()
 	}
-
 	return ast.WalkContinue, nil
 }
 
-// GFM extension renderers
-
-func (r *Renderer) renderTable(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *Renderer) renderStrikethrough(_ io.Writer, _ []byte, _ ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
 	if entering {
-		r.pushNode(NewTable())
+		state(rc).pushMark(NewStrikeMark())
 	} else {
-		r.popNode()
+		state(rc).popMark()
 	}
 	return ast.WalkContinue, nil
 }
 
-func (r *Renderer) renderTableHeader(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if entering {
-		r.pushNode(NewTableRow())
-	} else {
-		r.popNode()
-	}
-	return ast.WalkContinue, nil
-}
-
-func (r *Renderer) renderTableRow(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if entering {
-		r.pushNode(NewTableRow())
-	} else {
-		r.popNode()
-	}
-	return ast.WalkContinue, nil
-}
-
-func (r *Renderer) renderTableCell(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if entering {
-		n := node.(*extast.TableCell)
-		// Determine if this is a header cell based on parent
-		parent := n.Parent()
-		if _, isHeader := parent.(*extast.TableHeader); isHeader {
-			cell := NewTableHeader()
-			r.pushNode(cell)
-			// Table cells need paragraph wrapper
-			r.pushNode(NewParagraph())
-		} else {
-			cell := NewTableCell()
-			r.pushNode(cell)
-			// Table cells need paragraph wrapper
-			r.pushNode(NewParagraph())
-		}
-	} else {
-		// Pop the paragraph
-		r.popNode()
-		// Pop the cell
-		r.popNode()
-	}
-	return ast.WalkContinue, nil
-}
-
-func (r *Renderer) renderStrikethrough(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if entering {
-		r.pushMark(NewStrikeMark())
-	} else {
-		r.popMark()
-	}
-	return ast.WalkContinue, nil
-}
-
-func (r *Renderer) renderTaskCheckBox(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	// Task checkboxes are handled by the task-aware list rendering.
-	// If we reach here, it means the list wasn't converted to a task list
-	// (e.g. mixed task/non-task items). Fall back to text prefix.
-	if !entering {
-		return ast.WalkContinue, nil
-	}
-	n := node.(*extast.TaskCheckBox)
-	if parentTextBlock, ok := n.Parent().(*ast.TextBlock); ok {
-		if parentItem, ok := parentTextBlock.Parent().(*ast.ListItem); ok {
-			if list, ok := parentItem.Parent().(*ast.List); ok && isTaskList(list) {
-				return ast.WalkContinue, nil
-			}
-		}
-	}
-
-	// Render checkbox as text prefix
-	var text string
-	if n.IsChecked {
-		text = "[x] "
-	} else {
-		text = "[ ] "
-	}
-	r.appendToCurrentOrDocument(*NewText(text))
-	return ast.WalkContinue, nil
-}
-
-// taskCheckBox returns the leading task checkbox in a list item, if present.
-func taskCheckBox(item *ast.ListItem) (*extast.TaskCheckBox, bool) {
-	textBlock, ok := item.FirstChild().(*ast.TextBlock)
-	if !ok {
-		return nil, false
-	}
-	checkBox, ok := textBlock.FirstChild().(*extast.TaskCheckBox)
-	return checkBox, ok
-}
-
-// isTaskList reports whether every item in a list is a task item and every
-// nested list can also be represented as an ADF task list. This avoids mixing
-// listItem and taskItem nodes in a single ADF taskList.
 func isTaskList(list *ast.List) bool {
-	if !isTaskListItems(list) {
+	if list.IsOrdered() || list.FirstChild() == nil {
 		return false
 	}
+	for child := list.FirstChild(); child != nil; child = child.NextSibling() {
+		item, ok := child.(*ast.ListItem)
+		if !ok || !extension.IsTask(item) || !isTaskItem(item) {
+			return false
+		}
+	}
+	return true
+}
 
-	for item := list.FirstChild(); item != nil; item = item.NextSibling() {
-		for child := item.FirstChild(); child != nil; child = child.NextSibling() {
-			switch child := child.(type) {
-			case *ast.TextBlock:
-				// The leading checkbox and all task-item content are inline.
-			case *ast.List:
-				if isTaskList(child) {
-					continue
-				}
-				return false
-			default:
-				// taskItem cannot contain paragraphs or other block nodes.
+func isTaskItem(item *ast.ListItem) bool {
+	paragraph, ok := item.FirstChild().(*ast.Paragraph)
+	if !ok || containsBlockOnlyCard(paragraph) {
+		return false
+	}
+	for child := item.FirstChild(); child != nil; child = child.NextSibling() {
+		switch n := child.(type) {
+		case *ast.Paragraph:
+			if child != item.FirstChild() {
 				return false
 			}
+		case *ast.List:
+			if !isTaskList(n) {
+				return false
+			}
+		default:
+			return false
 		}
 	}
 	return true
 }
 
-func isTaskListItems(list *ast.List) bool {
-	if list.FirstChild() == nil {
+func containsBlockOnlyCard(node ast.Node) bool {
+	found := false
+	_ = ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if entering {
+			switch n.Kind() {
+			case astext.KindCard, astext.KindEmbed:
+				found = true
+				return ast.WalkStop, nil
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+	return found
+}
+
+func isTaskParagraph(node ast.Node) bool {
+	item, ok := node.Parent().(*ast.ListItem)
+	if !ok {
 		return false
 	}
-	for item := list.FirstChild(); item != nil; item = item.NextSibling() {
-		listItem, ok := item.(*ast.ListItem)
-		if !ok {
-			return false
-		}
-		if _, ok := taskCheckBox(listItem); !ok {
-			return false
-		}
-	}
-	return true
+	list, ok := item.Parent().(*ast.List)
+	return ok && isTaskList(list)
 }
 
-// ADF round-trip extension renderers (inline)
-
-func (r *Renderer) renderStatus(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if !entering {
-		return ast.WalkContinue, nil
+func (r *Renderer) renderStatus(_ io.Writer, source []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
+	if entering {
+		n := node.(*astext.Status)
+		state(rc).appendNode(*NewStatusNode(n.Text.Value(source), n.Color))
+		return ast.WalkSkipChildren, nil
 	}
-	n := node.(*astext.Status)
-	r.appendToCurrentOrDocument(*NewStatusNode(n.StatusText, n.Color))
-	return ast.WalkSkipChildren, nil
+	return ast.WalkContinue, nil
 }
 
-func (r *Renderer) renderMention(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if !entering {
-		return ast.WalkContinue, nil
+func (r *Renderer) renderMention(_ io.Writer, source []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
+	if entering {
+		n := node.(*astext.Mention)
+		state(rc).appendNode(*NewMentionNode(n.ID.Value(source), n.DisplayName.Value(source)))
+		return ast.WalkSkipChildren, nil
 	}
-	n := node.(*astext.Mention)
-	r.appendToCurrentOrDocument(*NewMentionNode(n.ID, n.DisplayName))
-	return ast.WalkSkipChildren, nil
+	return ast.WalkContinue, nil
 }
 
-func (r *Renderer) renderDate(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if !entering {
-		return ast.WalkContinue, nil
+func (r *Renderer) renderDate(_ io.Writer, source []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
+	if entering {
+		state(rc).appendNode(*NewDateNode(node.(*astext.Date).Timestamp.Value(source)))
+		return ast.WalkSkipChildren, nil
 	}
-	n := node.(*astext.Date)
-	r.appendToCurrentOrDocument(*NewDateNode(n.Timestamp))
-	return ast.WalkSkipChildren, nil
+	return ast.WalkContinue, nil
 }
 
-func (r *Renderer) renderPlaceholder(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if !entering {
-		return ast.WalkContinue, nil
+func (r *Renderer) renderPlaceholder(_ io.Writer, source []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
+	if entering {
+		state(rc).appendNode(*NewPlaceholderNode(node.(*astext.Placeholder).Label.Value(source)))
+		return ast.WalkSkipChildren, nil
 	}
-	n := node.(*astext.Placeholder)
-	r.appendToCurrentOrDocument(*NewPlaceholderNode(n.Label))
-	return ast.WalkSkipChildren, nil
+	return ast.WalkContinue, nil
 }
 
-func (r *Renderer) renderCard(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *Renderer) renderCard(_ io.Writer, source []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
 	if !entering {
 		return ast.WalkContinue, nil
 	}
 	n := node.(*astext.Card)
-	r.appendToCurrentOrDocument(*NewInlineCardNode(n.URL))
+	s := state(rc)
+	if isStandaloneParagraph(node) {
+		s.discardCurrentNode()
+		s.appendNode(*NewBlockCardNode(n.URL.Value(source)))
+		s.suppressedParagraph[node.Parent()] = true
+	} else {
+		s.appendNode(*NewInlineCardNode(n.URL.Value(source)))
+	}
 	return ast.WalkSkipChildren, nil
 }
 
-func (r *Renderer) renderEmbed(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *Renderer) renderEmbed(_ io.Writer, source []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
 	if !entering {
 		return ast.WalkContinue, nil
 	}
 	n := node.(*astext.Embed)
-	r.appendToCurrentOrDocument(*NewEmbedCardNode(n.URL))
+	s := state(rc)
+	if isStandaloneParagraph(node) {
+		s.discardCurrentNode()
+		embed := NewEmbedCardNode(n.URL.Value(source))
+		embed.Attrs["layout"] = "center"
+		s.appendNode(*embed)
+		s.suppressedParagraph[node.Parent()] = true
+	} else {
+		s.appendNode(*NewText("[embed:" + n.URL.Value(source) + "]"))
+	}
 	return ast.WalkSkipChildren, nil
 }
 
-func (r *Renderer) renderEmoji(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if !entering {
-		return ast.WalkContinue, nil
-	}
-	n := node.(*astext.Emoji)
-	r.appendToCurrentOrDocument(*NewEmojiNode(n.ShortName))
-	return ast.WalkSkipChildren, nil
+func isStandaloneParagraph(node ast.Node) bool {
+	parent, ok := node.Parent().(*ast.Paragraph)
+	return ok && parent.FirstChild() == node && parent.LastChild() == node
 }
 
-// ADF round-trip extension renderers (block)
-
-func (r *Renderer) renderPanel(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *Renderer) renderEmoji(_ io.Writer, source []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
 	if entering {
-		r.pushNode(NewPanelNode(node.(*astext.Panel).PanelType))
-	} else {
-		r.popNode()
+		state(rc).appendNode(*NewEmojiNode(node.(*astext.Emoji).ShortName.Value(source)))
+		return ast.WalkSkipChildren, nil
 	}
 	return ast.WalkContinue, nil
 }
 
-func (r *Renderer) renderDecisionList(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *Renderer) renderPanel(_ io.Writer, _ []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
 	if entering {
-		r.pushNode(NewDecisionListNode())
+		state(rc).pushNode(NewPanelNode(node.(*astext.Panel).PanelType))
 	} else {
-		r.popNode()
+		state(rc).popNode()
 	}
 	return ast.WalkContinue, nil
 }
 
-func (r *Renderer) renderDecisionItem(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *Renderer) renderDecisionList(_ io.Writer, _ []byte, _ ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
 	if entering {
-		n := node.(*astext.DecisionItem)
-		r.pushNode(NewDecisionItemNode(n.State))
+		state(rc).pushNode(NewDecisionListNode())
 	} else {
-		r.popNode()
+		state(rc).popNode()
 	}
 	return ast.WalkContinue, nil
 }
 
-// Ensure we implement the interface
-var _ renderer.NodeRenderer = (*Renderer)(nil)
+func (r *Renderer) renderDecisionItem(_ io.Writer, _ []byte, node ast.Node, entering bool, rc renderer.Context) (ast.WalkStatus, error) {
+	if entering {
+		state(rc).pushNode(NewDecisionItemNode(node.(*astext.DecisionItem).State))
+	} else {
+		state(rc).popNode()
+	}
+	return ast.WalkContinue, nil
+}
+
+var _ renderer.Renderer[io.Writer] = (*Renderer)(nil)

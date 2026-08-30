@@ -1,13 +1,14 @@
-//go:build goexperiment.jsonv2
-
 package adf
 
 import (
 	"bytes"
 	"encoding/json/v2"
+	"sync"
 	"testing"
 
-	"github.com/ajbeck/goldmark-adf/adfschema"
+	"github.com/ajbeck/goldmark-adf/v2/adfschema"
+	"github.com/yuin/goldmark/v2/extension"
+	"github.com/yuin/goldmark/v2/parser"
 )
 
 func TestConvert_Paragraph(t *testing.T) {
@@ -714,7 +715,7 @@ func TestConvert_Image_ExternalMedia_InBlockquote(t *testing.T) {
 
 func TestConvert_Image_ExternalMedia_CustomLayout(t *testing.T) {
 	input := []byte("![Alt text](https://example.com/image.png)")
-	output, err := convertWithOptions(input, WithExternalMedia(true), WithImageLayout("wide"))
+	output, err := convertWithOptions(input, WithExternalMedia(true), WithImageLayout(ImageLayoutWide))
 	if err != nil {
 		t.Fatalf("Convert failed: %v", err)
 	}
@@ -915,9 +916,12 @@ func TestConvert_Card(t *testing.T) {
 		t.Fatalf("Failed to parse output: %v", err)
 	}
 
-	card := doc.Content[0].Content[0]
-	if card.Type != "inlineCard" {
-		t.Fatalf("Expected inlineCard, got %s\nOutput: %s", card.Type, output)
+	if len(doc.Content) != 1 {
+		t.Fatalf("Expected one block card, got %d\nOutput: %s", len(doc.Content), output)
+	}
+	card := doc.Content[0]
+	if card.Type != "blockCard" {
+		t.Fatalf("Expected blockCard, got %s\nOutput: %s", card.Type, output)
 	}
 	if card.Attrs["url"] != "https://atlassian.com" {
 		t.Errorf("Expected url 'https://atlassian.com', got %v", card.Attrs["url"])
@@ -936,12 +940,18 @@ func TestConvert_Embed(t *testing.T) {
 		t.Fatalf("Failed to parse output: %v", err)
 	}
 
-	embed := doc.Content[0].Content[0]
+	if len(doc.Content) != 1 {
+		t.Fatalf("Expected one embed card, got %d\nOutput: %s", len(doc.Content), output)
+	}
+	embed := doc.Content[0]
 	if embed.Type != "embedCard" {
 		t.Fatalf("Expected embedCard, got %s\nOutput: %s", embed.Type, output)
 	}
 	if embed.Attrs["url"] != "https://youtube.com/watch?v=abc" {
 		t.Errorf("Expected url, got %v", embed.Attrs["url"])
+	}
+	if embed.Attrs["layout"] != "center" {
+		t.Errorf("Expected centered embed layout, got %v", embed.Attrs["layout"])
 	}
 }
 
@@ -1053,5 +1063,228 @@ func TestConvert_MixedInline(t *testing.T) {
 		if para.Content[i].Type != want {
 			t.Errorf("node[%d]: expected %s, got %s", i, want, para.Content[i].Type)
 		}
+	}
+}
+
+func TestConvertWithGFM_TableLayoutApplies(t *testing.T) {
+	output, err := convertGFMWithOptions(
+		[]byte("| A | B |\n|---|---|\n| 1 | 2 |"),
+		WithTableLayout(TableLayoutWide),
+	)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+	if err := adfschema.Validate(output); err != nil {
+		t.Fatalf("Invalid ADF output: %v\nOutput: %s", err, output)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+	if got := doc.Content[0].Attrs["layout"]; got != "wide" {
+		t.Errorf("Expected table layout wide, got %v", got)
+	}
+}
+
+func TestConvertWithGFM_OrderedTasksRemainOrdered(t *testing.T) {
+	output, err := ConvertWithGFM([]byte("1. [ ] First\n2. [x] Done"))
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+	if err := adfschema.Validate(output); err != nil {
+		t.Fatalf("Invalid ADF output: %v\nOutput: %s", err, output)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+	if got := doc.Content[0].Type; got != "orderedList" {
+		t.Fatalf("Expected orderedList, got %s", got)
+	}
+	first := doc.Content[0].Content[0].Content[0].Content[0]
+	if first.Type != "text" || first.Text != "[ ] " {
+		t.Errorf("Expected unchecked marker to remain text, got %+v", first)
+	}
+}
+
+func TestConvertWithGFM_EmbedMixedContentIsLiteral(t *testing.T) {
+	output, err := ConvertWithGFM([]byte("Before [embed:https://example.com] after"))
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+	if err := adfschema.Validate(output); err != nil {
+		t.Fatalf("Invalid ADF output: %v\nOutput: %s", err, output)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+	paragraph := doc.Content[0]
+	if paragraph.Type != "paragraph" || len(paragraph.Content) != 3 {
+		t.Fatalf("Expected three inline text nodes, got %+v", paragraph)
+	}
+	if got := paragraph.Content[1].Text; got != "[embed:https://example.com]" {
+		t.Errorf("Expected literal embed marker, got %q", got)
+	}
+}
+
+func TestConvertWithGFM_MalformedCustomMarkersRemainText(t *testing.T) {
+	input := []byte("[status:missing-color] [embed:]")
+	output, err := ConvertWithGFM(input)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+	if err := adfschema.Validate(output); err != nil {
+		t.Fatalf("Invalid ADF output: %v\nOutput: %s", err, output)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+	var got string
+	for _, node := range doc.Content[0].Content {
+		got += node.Text
+	}
+	if got != string(input) {
+		t.Errorf("Expected marker text to be preserved, got %q", got)
+	}
+}
+
+func TestConvertWithGFM_MarkerOnlyPanelIsSchemaValid(t *testing.T) {
+	output, err := ConvertWithGFM([]byte("> [!WARNING]"))
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+	if err := adfschema.Validate(output); err != nil {
+		t.Fatalf("Invalid ADF output: %v\nOutput: %s", err, output)
+	}
+}
+
+func TestConvertWithGFM_InvalidDecisionStructureFallsBackToBulletList(t *testing.T) {
+	output, err := ConvertWithGFM([]byte("- [!] Parent\n  - nested"))
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+	if err := adfschema.Validate(output); err != nil {
+		t.Fatalf("Invalid ADF output: %v\nOutput: %s", err, output)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+	if got := doc.Content[0].Type; got != "bulletList" {
+		t.Errorf("Expected bulletList fallback, got %s", got)
+	}
+}
+
+func TestConvert_ImageHandlerOverridesExternalMedia(t *testing.T) {
+	handler := func(image Image) (ImageResult, error) {
+		if image.Destination != "https://example.com/image.png" || image.Alt != "Alt" || image.Title != "Title" {
+			t.Fatalf("Unexpected image: %+v", image)
+		}
+		return ImageResult{Node: *NewStatusNode("handled", "green"), Placement: ImageInline}, nil
+	}
+	output, err := convertWithOptions(
+		[]byte(`![Alt](https://example.com/image.png "Title")`),
+		WithExternalMedia(true),
+		WithImageHandler(handler),
+	)
+	if err != nil {
+		t.Fatalf("Convert failed: %v", err)
+	}
+	if err := adfschema.Validate(output); err != nil {
+		t.Fatalf("Invalid ADF output: %v\nOutput: %s", err, output)
+	}
+
+	var doc Document
+	if err := json.Unmarshal(output, &doc); err != nil {
+		t.Fatalf("Failed to parse output: %v", err)
+	}
+	if got := doc.Content[0].Content[0].Type; got != "status" {
+		t.Errorf("Expected handler result status, got %s", got)
+	}
+}
+
+func TestRendererRejectsInvalidLayouts(t *testing.T) {
+	for _, option := range []Option{
+		WithTableLayout(TableLayout("invalid")),
+		WithImageLayout(ImageLayout("invalid")),
+	} {
+		if _, err := convertWithOptions([]byte("text"), option); err == nil {
+			t.Error("Expected invalid layout to fail conversion")
+		}
+	}
+}
+
+func TestNewWithGFM_ConcurrentReuse(t *testing.T) {
+	md := NewWithGFM(WithTableLayout(TableLayoutWide))
+	inputs := [][]byte{
+		[]byte("# Heading"),
+		[]byte("- [ ] Task\n- [x] Done"),
+		[]byte("| A | B |\n|---|---|\n| 1 | 2 |"),
+		[]byte("[card:https://example.com]"),
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, len(inputs)*16)
+	for range 16 {
+		for _, input := range inputs {
+			wg.Add(1)
+			go func(input []byte) {
+				defer wg.Done()
+				var output bytes.Buffer
+				if err := md.Convert(input, &output); err != nil {
+					errs <- err
+					return
+				}
+				if err := adfschema.Validate(output.Bytes()); err != nil {
+					errs <- err
+				}
+			}(input)
+		}
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Errorf("Concurrent conversion failed: %v", err)
+	}
+}
+
+func TestRoundTripSyntaxIsSchemaValid(t *testing.T) {
+	for _, input := range [][]byte{
+		[]byte("[status:In Progress|yellow]"),
+		[]byte("@[Ada](account-id)"),
+		[]byte("[date:1582152559]"),
+		[]byte("{{placeholder}}"),
+		[]byte("[card:https://example.com]"),
+		[]byte("[embed:https://example.com]"),
+		[]byte(":smile:"),
+		[]byte("> [!WARNING]\n> Take care."),
+		[]byte("- [!] Decided\n- [?] Pending"),
+	} {
+		output, err := ConvertWithGFM(input)
+		if err != nil {
+			t.Fatalf("ConvertWithGFM(%q): %v", input, err)
+		}
+		if err := adfschema.Validate(output); err != nil {
+			t.Errorf("Invalid ADF for %q: %v\nOutput: %s", input, err, output)
+		}
+	}
+}
+
+func TestRoundTripParserNativeComposition(t *testing.T) {
+	source := []byte("[status:Ready|green]")
+	p := parser.New(parser.WithExtensions(extension.GFMParser, RoundTripParser))
+	var output bytes.Buffer
+	if err := NewRenderer().Render(&output, source, p.Parse(source)); err != nil {
+		t.Fatalf("Render failed: %v", err)
+	}
+	if err := adfschema.Validate(output.Bytes()); err != nil {
+		t.Fatalf("Invalid ADF output: %v\nOutput: %s", err, output.Bytes())
 	}
 }

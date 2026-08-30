@@ -1,12 +1,10 @@
-//go:build goexperiment.jsonv2
-
 package adf_test
 
 import (
 	"bytes"
 	"fmt"
 
-	"github.com/ajbeck/goldmark-adf"
+	"github.com/ajbeck/goldmark-adf/v2"
 )
 
 // This example demonstrates basic Markdown to ADF conversion using the
