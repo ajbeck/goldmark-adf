@@ -1,162 +1,83 @@
-# go-markdown-adf: Goldmark ADF Renderer
+# goldmark-adf v2 overview
 
-## Overview
+goldmark-adf converts CommonMark and GitHub Flavored Markdown (GFM) into
+[Atlassian Document Format (ADF)](https://developer.atlassian.com/cloud/jira/platform/apis/document/structure/)
+JSON. ADF is the document format used by Jira Cloud and Confluence Cloud.
 
-This project implements a custom [goldmark](https://github.com/yuin/goldmark) renderer that outputs Atlassian Document Format (ADF) instead of HTML. This enables converting Markdown documents into a format consumable by Atlassian products like Jira Cloud and Confluence Cloud.
+## Requirements
 
-## What is Goldmark?
+goldmark-adf v2 requires Go 1.27 or later and depends on
+[Goldmark v2](https://github.com/yuin/goldmark/releases/tag/v2.0.0). The
+experimental `GOEXPERIMENT=jsonv2` setting is no longer required.
 
-Goldmark is a CommonMark-compliant Markdown parser and renderer written in Go. It provides:
-
-- **Parser**: Converts Markdown text into an Abstract Syntax Tree (AST)
-- **Renderer**: Walks the AST and produces output (HTML by default)
-- **Extension System**: Allows adding new syntax (GFM tables, strikethrough, etc.)
-
-### Key Architecture Concepts
+## Architecture
 
 ```
-Markdown Text → Parser → AST → Renderer → Output (HTML/ADF/etc.)
+Markdown source -> Goldmark v2 parser -> Goldmark AST -> ADF renderer -> ADF JSON
 ```
 
-**Core Interfaces:**
+The package exposes two levels of API:
 
-1. `renderer.Renderer` - Main interface with `Render(w io.Writer, source []byte, n ast.Node) error`
-2. `renderer.NodeRenderer` - Provides rendering functions via `RegisterFuncs(NodeRendererFuncRegisterer)`
-3. `renderer.NodeRendererFunc` - Function signature: `func(writer util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error)`
+- `New` creates a reusable CommonMark-to-ADF converter.
+- `NewWithGFM` creates a reusable converter with GFM and the package's
+  round-trip extension syntax.
+- `NewParser`, `NewWithGFMParser`, and `NewRenderer` expose the native
+  Goldmark v2 components for integrations that need to inspect or extend the
+  AST.
 
-The `entering` parameter is key: it's `true` when first visiting a node (open tag) and `false` when leaving (close tag).
+`*Markdown` converters are safe for concurrent use. Each conversion gets a
+fresh parser and renderer context; an application-supplied `ImageHandler` must
+itself be safe for concurrent calls.
 
-## What is ADF?
+## ADF output
 
-Atlassian Document Format is a JSON-based format for representing rich text documents. Every document has:
+Every conversion produces an ADF document of this shape:
 
 ```json
 {
   "version": 1,
   "type": "doc",
-  "content": [...]
+  "content": []
 }
 ```
 
-### ADF Node Categories
+The renderer maps CommonMark blocks and inline content to their ADF
+equivalents, including paragraphs, headings, blockquotes, lists, code blocks,
+links, images, tables, and formatting marks. `NewWithGFM` additionally enables
+tables, strikethrough, autolinks, task lists, and the ADF round-trip syntax.
 
-1. **Top-level Block Nodes**: Can appear directly under `doc`
-   - `blockquote`, `bulletList`, `codeBlock`, `expand`, `heading`
-   - `mediaGroup`, `mediaSingle`, `orderedList`, `panel`, `paragraph`
-   - `rule`, `table`
+The renderer prefers schema-correct output over lossy structural conversion.
+For example, a standalone `[card:URL]` becomes a `blockCard`, while the same
+token inside text becomes an `inlineCard`; a mixed inline `[embed:URL]` stays
+literal text because ADF has no inline embed-card node.
 
-2. **Child Block Nodes**: Must be nested in other nodes
-   - `listItem`, `media`, `nestedExpand`
-   - `tableCell`, `tableHeader`, `tableRow`
+## Configuration and validation
 
-3. **Inline Nodes**: Contain document content
-   - `date`, `emoji`, `hardBreak`, `inlineCard`
-   - `mention`, `status`, `text`, `mediaInline`
-
-4. **Marks**: Apply formatting to text nodes
-   - `code`, `em`, `link`, `strike`, `strong`
-   - `subsup`, `textColor`, `underline`
-
-## Project Goals
-
-Build a goldmark renderer that:
-
-1. Walks the goldmark AST nodes
-2. Produces valid ADF JSON output
-3. Maps Markdown constructs to equivalent ADF nodes
-4. Supports core Markdown features (paragraphs, headings, lists, code, emphasis, links, images)
-5. Optionally supports GFM extensions (tables, strikethrough, task lists)
-
-## Architecture Design
-
-### Renderer Structure
+Options configure generated output. The table and image layouts are typed:
 
 ```go
-// ADFRenderer implements renderer.NodeRenderer
-type ADFRenderer struct {
-    // Configuration options
-}
-
-func (r *ADFRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
-    // Register a function for each AST node kind
-    reg.Register(ast.KindDocument, r.renderDocument)
-    reg.Register(ast.KindParagraph, r.renderParagraph)
-    reg.Register(ast.KindHeading, r.renderHeading)
-    // ... etc
-}
+md := adf.NewWithGFM(
+	adf.WithTableLayout(adf.TableLayoutWide),
+	adf.WithImageLayout(adf.ImageLayoutFullWidth),
+)
 ```
 
-### JSON Building Strategy
+`WithImageHandler` lets an application provide its own ADF image result. A
+configured handler takes precedence over external-media output.
 
-Unlike HTML (which is text-based), ADF is structured JSON. Options:
-
-1. **String Builder**: Build JSON as strings (simple but error-prone)
-2. **Struct-based**: Define Go structs matching ADF schema, marshal at end (type-safe)
-3. **Hybrid**: Use structs internally, serialize during walk
-
-Recommended: **Struct-based approach** with types like:
+The renderer does not validate every document automatically. Use the optional
+`adfschema` package at a boundary that requires validation:
 
 ```go
-type Document struct {
-    Version int    `json:"version"`
-    Type    string `json:"type"`
-    Content []Node `json:"content"`
-}
-
-type Node struct {
-    Type    string                 `json:"type"`
-    Content []Node                 `json:"content,omitempty"`
-    Attrs   map[string]interface{} `json:"attrs,omitempty"`
-    Marks   []Mark                 `json:"marks,omitempty"`
-    Text    string                 `json:"text,omitempty"`
+if err := adfschema.Validate(adfJSON); err != nil {
+	return err
 }
 ```
 
-### Handling the AST Walk
+## Related documentation
 
-The goldmark renderer walks the AST depth-first, calling render functions with `entering=true` on descent and `entering=false` on ascent. For JSON output:
-
-- On `entering=true`: Create new ADF node, push onto stack
-- On `entering=false`: Pop from stack, append to parent's content
-
-## Implementation Phases
-
-### Phase 1: Core Block Nodes
-- Document structure (doc wrapper)
-- Paragraph
-- Heading (levels 1-6)
-- Blockquote
-- ThematicBreak → rule
-
-### Phase 2: Lists
-- BulletList → bulletList
-- OrderedList → orderedList
-- ListItem → listItem
-
-### Phase 3: Code
-- CodeBlock/FencedCodeBlock → codeBlock
-- CodeSpan → text with code mark
-
-### Phase 4: Inline Elements
-- Text nodes
-- Emphasis → em/strong marks
-- Link → text with link mark
-- Image → mediaSingle/media (requires special handling)
-
-### Phase 5: GFM Extensions
-- Tables → table/tableRow/tableHeader/tableCell
-- Strikethrough → strike mark
-- Task lists → custom handling
-
-## Testing Strategy
-
-1. **Unit tests**: Individual node rendering
-2. **Integration tests**: Full document conversion
-3. **Validation**: Ensure output matches ADF schema
-4. **Roundtrip tests**: Compare with Atlassian's own rendering
-
-## Dependencies
-
-- `github.com/yuin/goldmark` - Core parser and renderer framework
-
-No other external dependencies required for basic functionality.
+- [Getting started](specs/getting-started.md)
+- [Migrating to v2](migrating-to-v2.md)
+- [Markdown extensions](extensions.md)
+- [Goldmark to ADF node mapping](node-mapping.md)
+- [ADF schema coverage](schema-coverage.md)
