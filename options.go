@@ -1,121 +1,156 @@
-//go:build goexperiment.jsonv2
-
 package adf
 
 import (
-	"github.com/yuin/goldmark/renderer"
+	"fmt"
+	"io"
+
+	"github.com/yuin/goldmark/v2/renderer"
 )
+
+// TableLayout controls the layout of generated ADF tables.
+type TableLayout string
+
+const (
+	// TableLayoutDefault uses the standard table width.
+	TableLayoutDefault TableLayout = "default"
+	// TableLayoutCenter centers the table.
+	TableLayoutCenter TableLayout = "center"
+	// TableLayoutWide extends the table into the page margins.
+	TableLayoutWide TableLayout = "wide"
+	// TableLayoutFullWidth makes the table full width.
+	TableLayoutFullWidth TableLayout = "full-width"
+	// TableLayoutAlignStart aligns the table to the logical start edge.
+	TableLayoutAlignStart TableLayout = "align-start"
+	// TableLayoutAlignEnd aligns the table to the logical end edge.
+	TableLayoutAlignEnd TableLayout = "align-end"
+)
+
+// ImageLayout controls the layout of block-level image results.
+type ImageLayout string
+
+const (
+	// ImageLayoutCenter centers the image.
+	ImageLayoutCenter ImageLayout = "center"
+	// ImageLayoutWide extends the image into the page margins.
+	ImageLayoutWide ImageLayout = "wide"
+	// ImageLayoutFullWidth makes the image full width.
+	ImageLayoutFullWidth ImageLayout = "full-width"
+	// ImageLayoutWrapLeft floats the image to the logical left.
+	ImageLayoutWrapLeft ImageLayout = "wrap-left"
+	// ImageLayoutWrapRight floats the image to the logical right.
+	ImageLayoutWrapRight ImageLayout = "wrap-right"
+	// ImageLayoutAlignStart aligns the image to the logical start edge.
+	ImageLayoutAlignStart ImageLayout = "align-start"
+	// ImageLayoutAlignEnd aligns the image to the logical end edge.
+	ImageLayoutAlignEnd ImageLayout = "align-end"
+)
+
+// Image is the source information provided to an ImageHandler.
+type Image struct {
+	Destination string
+	Alt         string
+	Title       string
+}
+
+// ImagePlacement controls where an ImageHandler result is inserted.
+type ImagePlacement uint8
+
+const (
+	// ImageInline inserts the node into the current inline container.
+	ImageInline ImagePlacement = iota
+	// ImageBlock inserts the node as a block, splitting a surrounding paragraph.
+	ImageBlock
+)
+
+// ImageResult is the ADF node produced by an ImageHandler.
+type ImageResult struct {
+	Node      Node
+	Placement ImagePlacement
+}
+
+// ImageHandler overrides the built-in image conversion behavior. It must be
+// safe for concurrent calls when used with a concurrently reused Markdown or
+// Renderer instance. The returned node becomes renderer-owned after return.
+type ImageHandler func(Image) (ImageResult, error)
 
 // Config holds configuration options for the ADF renderer.
 type Config struct {
-	// ImageHandler specifies how to handle image nodes.
-	// By default, images are converted to links.
-	ImageHandler ImageHandler
+	renderer.Config[io.Writer, Config]
 
-	// TableLayout specifies the default table layout.
-	// Valid values: "default", "center", "wide", "full-width"
-	TableLayout string
-
-	// ExternalMedia enables external media image handling.
-	// When true, images are rendered as mediaSingle nodes with external media.
-	// When false (default), images are converted to text with link marks.
+	ImageHandler  ImageHandler
+	TableLayout   TableLayout
 	ExternalMedia bool
-
-	// ImageLayout specifies the default layout for mediaSingle nodes.
-	// Valid values: "center", "wide", "full-width", "wrap-left", "wrap-right", "align-start", "align-end"
-	// Defaults to "center" if not specified.
-	ImageLayout string
+	ImageLayout   ImageLayout
 }
 
-// ImageHandler is a function that handles image rendering.
-type ImageHandler func(dest, alt, title string) *Node
-
-// NewConfig creates a new Config with default values.
-func NewConfig() Config {
+// Default returns a Config with default values.
+func (Config) Default() Config {
 	return Config{
-		TableLayout: "default",
-		ImageLayout: "center",
+		TableLayout: TableLayoutDefault,
+		ImageLayout: ImageLayoutCenter,
 	}
 }
 
-// Option is a functional option for configuring the ADF renderer.
+// NewConfig creates a new Config with default values.
+func NewConfig() Config {
+	return Config{}.Default()
+}
+
+func (c Config) validate() error {
+	if !validTableLayout(c.TableLayout) {
+		return fmt.Errorf("adf: invalid table layout %q", c.TableLayout)
+	}
+	if !validImageLayout(c.ImageLayout) {
+		return fmt.Errorf("adf: invalid image layout %q", c.ImageLayout)
+	}
+	return nil
+}
+
+func validTableLayout(layout TableLayout) bool {
+	switch layout {
+	case TableLayoutDefault, TableLayoutCenter, TableLayoutWide, TableLayoutFullWidth, TableLayoutAlignStart, TableLayoutAlignEnd:
+		return true
+	default:
+		return false
+	}
+}
+
+func validImageLayout(layout ImageLayout) bool {
+	switch layout {
+	case ImageLayoutCenter, ImageLayoutWide, ImageLayoutFullWidth, ImageLayoutWrapLeft, ImageLayoutWrapRight, ImageLayoutAlignStart, ImageLayoutAlignEnd:
+		return true
+	default:
+		return false
+	}
+}
+
+// Option configures an ADF Renderer.
 type Option interface {
-	SetADFOption(*Config)
+	renderer.Option[Config]
 }
 
-// withImageHandler implements Option.
-type withImageHandler struct {
-	handler ImageHandler
-}
+type optionFunc func(*Config)
 
-func (o *withImageHandler) SetADFOption(c *Config) {
-	c.ImageHandler = o.handler
-}
+func (f optionFunc) SetFormatOption(c *Config) { f(c) }
 
-func (o *withImageHandler) SetConfig(c *renderer.Config) {
-	// No-op for renderer.Config
-}
-
-// WithImageHandler sets a custom image handler.
+// WithImageHandler sets a custom image handler. It takes precedence over
+// WithExternalMedia.
 func WithImageHandler(handler ImageHandler) Option {
-	return &withImageHandler{handler: handler}
+	return optionFunc(func(c *Config) { c.ImageHandler = handler })
 }
 
-// withTableLayout implements Option.
-type withTableLayout struct {
-	layout string
+// WithTableLayout sets the default layout for generated tables.
+func WithTableLayout(layout TableLayout) Option {
+	return optionFunc(func(c *Config) { c.TableLayout = layout })
 }
 
-func (o *withTableLayout) SetADFOption(c *Config) {
-	c.TableLayout = o.layout
-}
-
-func (o *withTableLayout) SetConfig(c *renderer.Config) {
-	// No-op for renderer.Config
-}
-
-// WithTableLayout sets the default table layout.
-// Valid values: "default", "center", "wide", "full-width"
-func WithTableLayout(layout string) Option {
-	return &withTableLayout{layout: layout}
-}
-
-// withExternalMedia implements Option.
-type withExternalMedia struct {
-	enabled bool
-}
-
-func (o *withExternalMedia) SetADFOption(c *Config) {
-	c.ExternalMedia = o.enabled
-}
-
-func (o *withExternalMedia) SetConfig(c *renderer.Config) {
-	// No-op for renderer.Config
-}
-
-// WithExternalMedia enables or disables external media image handling.
-// When enabled, images are rendered as mediaSingle nodes containing external media.
-// When disabled (default), images are converted to text with link marks.
+// WithExternalMedia enables or disables external-media image handling. When
+// disabled, images are rendered as linked text unless an ImageHandler is set.
 func WithExternalMedia(enabled bool) Option {
-	return &withExternalMedia{enabled: enabled}
+	return optionFunc(func(c *Config) { c.ExternalMedia = enabled })
 }
 
-// withImageLayout implements Option.
-type withImageLayout struct {
-	layout string
-}
-
-func (o *withImageLayout) SetADFOption(c *Config) {
-	c.ImageLayout = o.layout
-}
-
-func (o *withImageLayout) SetConfig(c *renderer.Config) {
-	// No-op for renderer.Config
-}
-
-// WithImageLayout sets the default layout for mediaSingle nodes.
-// Valid values: "center", "wide", "full-width", "wrap-left", "wrap-right", "align-start", "align-end"
-// Defaults to "center" if not specified.
-func WithImageLayout(layout string) Option {
-	return &withImageLayout{layout: layout}
+// WithImageLayout sets the default layout for generated mediaSingle nodes.
+func WithImageLayout(layout ImageLayout) Option {
+	return optionFunc(func(c *Config) { c.ImageLayout = layout })
 }

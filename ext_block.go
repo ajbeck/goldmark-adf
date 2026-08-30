@@ -1,19 +1,15 @@
-//go:build goexperiment.jsonv2
-
 package adf
 
 import (
 	"bytes"
 	"regexp"
 
-	"github.com/ajbeck/goldmark-adf/astext"
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/parser"
-	"github.com/yuin/goldmark/text"
+	"github.com/ajbeck/goldmark-adf/v2/astext"
+	"github.com/yuin/goldmark/v2/ast"
+	"github.com/yuin/goldmark/v2/parser"
+	"github.com/yuin/goldmark/v2/text"
 )
 
-// panelTransformer converts blockquotes that start with [!TYPE] (GitHub alert
-// syntax) into Panel AST nodes.
 type panelTransformer struct{}
 
 var alertPattern = regexp.MustCompile(`^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]`)
@@ -26,244 +22,152 @@ var alertToPanelType = map[string]string{
 	"CAUTION":   "error",
 }
 
-func (t *panelTransformer) Transform(node *ast.Document, reader text.Reader, pc parser.Context) {
+func (*panelTransformer) Transform(node *ast.Document, reader text.Reader, _ parser.Context) {
 	source := reader.Source()
-	ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+	_ = ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering || n.Kind() != ast.KindBlockquote {
 			return ast.WalkContinue, nil
 		}
-
-		bq := n.(*ast.Blockquote)
-		first := bq.FirstChild()
-		if first == nil || !ast.IsParagraph(first) {
+		blockquote := n.(*ast.Blockquote)
+		paragraph, ok := blockquote.FirstChild().(*ast.Paragraph)
+		if !ok || len(paragraph.Source()) == 0 {
+			return ast.WalkContinue, nil
+		}
+		match := alertPattern.FindSubmatch(paragraph.Source()[0].Bytes(source))
+		if match == nil {
 			return ast.WalkContinue, nil
 		}
 
-		para := first.(*ast.Paragraph)
+		panel := astext.NewPanel(alertToPanelType[string(match[1])])
+		panel.SetPos(blockquote.Pos())
+		removeLeadingText(paragraph, len(match[0]), source)
 
-		// Use the paragraph's raw source lines for detection because inline
-		// parsers (triggered by '[') may have split the text into multiple
-		// nodes by the time this transformer runs.
-		if para.Lines().Len() == 0 {
-			return ast.WalkContinue, nil
+		if paragraph.ChildCount() == 0 {
+			// ADF panels require at least one child. Preserve a marker-only alert
+			// as an intentionally empty paragraph.
+			blockquote.RemoveChild(paragraph)
+			panel.AppendChild(ast.NewParagraph())
 		}
-		firstSeg := para.Lines().At(0)
-		firstLine := firstSeg.Value(source)
-		m := alertPattern.FindSubmatch(firstLine)
-		if m == nil {
-			return ast.WalkContinue, nil
+		for child := blockquote.FirstChild(); child != nil; {
+			next := child.NextSibling()
+			blockquote.RemoveChild(child)
+			panel.AppendChild(child)
+			child = next
 		}
-
-		keyword := string(m[1])
-		panelType := alertToPanelType[keyword]
-		prefixLen := len(m[0])
-
-		panel := astext.NewPanel(panelType)
-
-		// Strip the [!TYPE] prefix from the paragraph's inline children.
-		// Because inline parsing may have split the prefix across multiple
-		// text nodes, walk forward and consume bytes until we've skipped
-		// past the prefix.
-		remaining := prefixLen
-		for remaining > 0 {
-			child := para.FirstChild()
-			if child == nil {
-				break
-			}
-			if child.Kind() != ast.KindText {
-				break
-			}
-			tn := child.(*ast.Text)
-			seg := tn.Segment
-			nodeLen := seg.Stop - seg.Start
-			if nodeLen <= remaining {
-				remaining -= nodeLen
-				para.RemoveChild(para, child)
-			} else {
-				tn.Segment = text.NewSegment(seg.Start+remaining, seg.Stop)
-				remaining = 0
-			}
-		}
-		// Also trim any leading space from the next text node.
-		if fc := para.FirstChild(); fc != nil && fc.Kind() == ast.KindText {
-			tn := fc.(*ast.Text)
-			seg := tn.Segment
-			val := seg.Value(source)
-			trimmed := bytes.TrimLeft(val, " ")
-			if len(trimmed) < len(val) {
-				tn.Segment = text.NewSegment(seg.Start+(len(val)-len(trimmed)), seg.Stop)
-			}
-			if tn.Segment.Stop == tn.Segment.Start {
-				para.RemoveChild(para, fc)
-			}
-		}
-		// If the paragraph is now empty, remove it.
-		if para.ChildCount() == 0 {
-			bq.RemoveChild(bq, para)
-		}
-
-		// Move all children from blockquote to panel.
-		for c := bq.FirstChild(); c != nil; {
-			next := c.NextSibling()
-			bq.RemoveChild(bq, c)
-			panel.AppendChild(panel, c)
-			c = next
-		}
-
-		// Replace blockquote with panel in the tree.
-		parent := bq.Parent()
-		parent.ReplaceChild(parent, bq, panel)
-
-		return ast.WalkContinue, nil
+		blockquote.Parent().ReplaceChild(blockquote, panel)
+		return ast.WalkSkipChildren, nil
 	})
 }
 
-// decisionTransformer converts list items starting with [!] or [?] into
-// DecisionList/DecisionItem AST nodes.
+// removeLeadingText removes a raw prefix from the first contiguous text nodes
+// in a paragraph. Panel and decision prefixes are parsed before normal inline
+// content, so retaining source-backed text values is sufficient here.
+func removeLeadingText(paragraph ast.Node, remaining int, source []byte) {
+	for remaining > 0 {
+		child, ok := paragraph.FirstChild().(*ast.Text)
+		if !ok {
+			return
+		}
+		value := child.Value
+		index := value.Index()
+		length := index.Stop - index.Start
+		if length <= remaining {
+			remaining -= length
+			paragraph.RemoveChild(child)
+			continue
+		}
+		child.Value = text.NewSingleLineValueFromIndex(
+			text.NewIndex(index.Start+remaining, index.Stop), text.NewDecoder(),
+		)
+		remaining = 0
+	}
+
+	if child, ok := paragraph.FirstChild().(*ast.Text); ok {
+		index := child.Value.Index()
+		trimmed := bytes.TrimLeft(child.Value.Bytes(source), " ")
+		if len(trimmed) < index.Stop-index.Start {
+			child.Value = text.NewSingleLineValueFromIndex(
+				text.NewIndex(index.Stop-len(trimmed), index.Stop), text.NewDecoder(),
+			)
+		}
+		if child.Value.IsEmpty() {
+			paragraph.RemoveChild(child)
+		}
+	}
+}
+
 type decisionTransformer struct{}
-
-func (t *decisionTransformer) Transform(node *ast.Document, reader text.Reader, pc parser.Context) {
-	source := reader.Source()
-	ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
-		if !entering || n.Kind() != ast.KindList {
-			return ast.WalkContinue, nil
-		}
-
-		list := n.(*ast.List)
-		if list.IsOrdered() {
-			return ast.WalkContinue, nil
-		}
-
-		// Check if ALL items are decision items
-		allDecision := true
-		list.FirstChild() // just checking
-		for c := list.FirstChild(); c != nil; c = c.NextSibling() {
-			if c.Kind() != ast.KindListItem {
-				allDecision = false
-				break
-			}
-			if !isDecisionItem(c, source) {
-				allDecision = false
-				break
-			}
-		}
-		if !allDecision {
-			return ast.WalkContinue, nil
-		}
-
-		// Convert to DecisionList
-		decList := astext.NewDecisionList()
-		for c := list.FirstChild(); c != nil; {
-			next := c.NextSibling()
-			state := extractDecisionState(c, source)
-			removeDecisionPrefix(c, source)
-
-			decItem := astext.NewDecisionItem(state)
-			// Move list item's children to decision item
-			for gc := c.FirstChild(); gc != nil; {
-				gnext := gc.NextSibling()
-				c.RemoveChild(c, gc)
-				decItem.AppendChild(decItem, gc)
-				gc = gnext
-			}
-			list.RemoveChild(list, c)
-			decList.AppendChild(decList, decItem)
-			c = next
-		}
-
-		parent := list.Parent()
-		parent.ReplaceChild(parent, list, decList)
-
-		return ast.WalkContinue, nil
-	})
-}
 
 var decisionPattern = regexp.MustCompile(`^\[([!?])\]\s*`)
 
-// paraRawLine returns the first raw source line of a paragraph, using
-// Lines() which is unaffected by inline parsing. Returns nil if unavailable.
-// blockLeadingText collects text content from the leading text nodes of a
-// paragraph or text block. This is needed because inline parsing may split
-// bracket-based syntax across multiple text nodes.
-// Handles both Paragraph (loose lists, blockquotes) and TextBlock (tight lists).
-func blockLeadingText(n ast.Node, source []byte) []byte {
-	if !ast.IsParagraph(n) && n.Kind() != ast.KindTextBlock {
-		return nil
-	}
-	// Concatenate leading text node values.
-	var buf []byte
-	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
-		if c.Kind() != ast.KindText {
-			break
+func (*decisionTransformer) Transform(node *ast.Document, reader text.Reader, _ parser.Context) {
+	source := reader.Source()
+	_ = ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering || n.Kind() != ast.KindList {
+			return ast.WalkContinue, nil
 		}
-		buf = append(buf, c.(*ast.Text).Segment.Value(source)...)
-	}
-	return buf
+		list := n.(*ast.List)
+		if list.IsOrdered() || !isDecisionList(list, source) {
+			return ast.WalkContinue, nil
+		}
+
+		decisionList := astext.NewDecisionList()
+		decisionList.SetPos(list.Pos())
+		for item := list.FirstChild(); item != nil; {
+			next := item.NextSibling()
+			paragraph := item.FirstChild().(*ast.Paragraph)
+			state := decisionState(paragraph, source)
+			removeLeadingText(paragraph, len(decisionPattern.Find(blockLeadingText(paragraph, source))), source)
+
+			decisionItem := astext.NewDecisionItem(state)
+			decisionItem.SetPos(item.Pos())
+			for child := paragraph.FirstChild(); child != nil; {
+				nextChild := child.NextSibling()
+				paragraph.RemoveChild(child)
+				decisionItem.AppendChild(child)
+				child = nextChild
+			}
+			list.RemoveChild(item)
+			decisionList.AppendChild(decisionItem)
+			item = next
+		}
+		list.Parent().ReplaceChild(list, decisionList)
+		return ast.WalkSkipChildren, nil
+	})
 }
 
-func isDecisionItem(n ast.Node, source []byte) bool {
-	first := n.FirstChild()
-	if first == nil {
+func isDecisionList(list *ast.List, source []byte) bool {
+	if list.FirstChild() == nil {
 		return false
 	}
-	line := blockLeadingText(first, source)
-	return line != nil && decisionPattern.Match(line)
+	for item := list.FirstChild(); item != nil; item = item.NextSibling() {
+		if item.Kind() != ast.KindListItem || item.ChildCount() != 1 {
+			return false
+		}
+		paragraph, ok := item.FirstChild().(*ast.Paragraph)
+		if !ok || decisionPattern.Find(blockLeadingText(paragraph, source)) == nil {
+			return false
+		}
+	}
+	return true
 }
 
-func extractDecisionState(n ast.Node, source []byte) string {
-	first := n.FirstChild()
-	line := blockLeadingText(first, source)
-	if line == nil {
-		return ""
+func blockLeadingText(node ast.Node, source []byte) []byte {
+	var output []byte
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		textNode, ok := child.(*ast.Text)
+		if !ok {
+			break
+		}
+		output = append(output, textNode.Value.Bytes(source)...)
 	}
-	m := decisionPattern.FindSubmatch(line)
-	if m == nil {
-		return ""
-	}
-	if string(m[1]) == "!" {
+	return output
+}
+
+func decisionState(paragraph *ast.Paragraph, source []byte) string {
+	match := decisionPattern.FindSubmatch(blockLeadingText(paragraph, source))
+	if len(match) == 2 && match[1][0] == '!' {
 		return "DECIDED"
 	}
 	return "UNDECIDED"
-}
-
-func removeDecisionPrefix(n ast.Node, source []byte) {
-	first := n.FirstChild()
-	if first == nil {
-		return
-	}
-	if !ast.IsParagraph(first) && first.Kind() != ast.KindTextBlock {
-		return
-	}
-	para := first // use ast.Node interface
-	line := blockLeadingText(first, source)
-	if line == nil {
-		return
-	}
-	m := decisionPattern.FindSubmatch(line)
-	if m == nil {
-		return
-	}
-	prefixLen := len(m[0])
-
-	// Walk inline children and consume bytes corresponding to the prefix.
-	remaining := prefixLen
-	for remaining > 0 {
-		child := para.FirstChild()
-		if child == nil {
-			break
-		}
-		if child.Kind() != ast.KindText {
-			break
-		}
-		tn := child.(*ast.Text)
-		seg := tn.Segment
-		nodeLen := seg.Stop - seg.Start
-		if nodeLen <= remaining {
-			remaining -= nodeLen
-			para.RemoveChild(para, child)
-		} else {
-			tn.Segment = text.NewSegment(seg.Start+remaining, seg.Stop)
-			remaining = 0
-		}
-	}
 }

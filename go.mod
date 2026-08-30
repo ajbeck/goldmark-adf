@@ -1,7 +1,8 @@
-module github.com/ajbeck/goldmark-adf
+module github.com/ajbeck/goldmark-adf/v2
 
-go 1.25.6
+go 1.27.0
 
-require github.com/google/jsonschema-go v0.4.3
-
-require github.com/yuin/goldmark v1.8.4
+require (
+	github.com/google/jsonschema-go v0.4.3
+	github.com/yuin/goldmark/v2 v2.0.0
+)

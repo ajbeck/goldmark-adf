@@ -9,9 +9,6 @@ permissions:
   contents: read
   pull-requests: write
 
-env:
-  GOEXPERIMENT: jsonv2
-
 jobs:
   ci:
     name: CI

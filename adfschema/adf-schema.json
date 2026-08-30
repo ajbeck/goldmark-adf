@@ -2352,7 +2352,7 @@
         "attrs": {
           "additionalProperties": false,
           "properties": {
-            "$id": {
+            "id": {
               "type": "string"
             },
             "accessLevel": {

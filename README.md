@@ -6,13 +6,12 @@ ADF is the native document format used by Atlassian products like Jira Cloud and
 
 ## Requirements
 
-- Go 1.25+
-- `GOEXPERIMENT=jsonv2` environment variable (uses experimental `encoding/json/v2`)
+- Go 1.27+
 
 ## Installation
 
 ```bash
-go get github.com/ajbeck/goldmark-adf
+go get github.com/ajbeck/goldmark-adf/v2@v2.0.0
 ```
 
 ## Usage
@@ -27,7 +26,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/ajbeck/goldmark-adf"
+    "github.com/ajbeck/goldmark-adf/v2"
 )
 
 func main() {
@@ -86,11 +85,12 @@ This produces `mediaSingle` nodes that display images inline in Jira and Conflue
 You can also control image layout:
 
 ```go
-// Options: "center" (default), "wide", "full-width",
-//          "wrap-left", "wrap-right", "align-start", "align-end"
+// ImageLayoutCenter is the default. Other supported values are
+// ImageLayoutWide, ImageLayoutFullWidth, ImageLayoutWrapLeft,
+// ImageLayoutWrapRight, ImageLayoutAlignStart, and ImageLayoutAlignEnd.
 md := adf.New(
     adf.WithExternalMedia(true),
-    adf.WithImageLayout("wide"),
+    adf.WithImageLayout(adf.ImageLayoutWide),
 )
 ```
 
@@ -98,10 +98,10 @@ md := adf.New(
 
 ```bash
 # Build
-GOEXPERIMENT=jsonv2 go build ./...
+go build ./...
 
 # Test
-GOEXPERIMENT=jsonv2 go test ./...
+go test ./...
 ```
 
 ## Round-Trip with adf-to-markdown
@@ -145,6 +145,11 @@ These extensions are parsed by `NewWithGFM()` and correspond to the output of ad
 | `- [!] text` / `- [?] text` | `decisionList` / `decisionItem` |
 | `- [x]` / `- [ ]` | `taskList` / `taskItem` |
 
+When `[card:URL]` is the sole unmarked content of a paragraph it emits a
+`blockCard`; elsewhere it emits an `inlineCard`. `[embed:URL]` is emitted as a
+centered `embedCard` only in that standalone position, because ADF does not
+permit inline embed cards. In mixed inline content it remains literal text.
+
 For the full syntax specification and escaping rules, see the [roundtrip-extensions.md](https://github.com/ajbeck/adf-to-markdown/blob/main/docs/roundtrip-extensions.md) document in adf-to-markdown.
 
 ## Supported Markdown Features
@@ -185,7 +190,7 @@ For the full syntax specification and escaping rules, see the [roundtrip-extensi
 The `adfschema` subpackage provides validation against the official Atlassian ADF JSON Schema:
 
 ```go
-import "github.com/ajbeck/goldmark-adf/adfschema"
+import "github.com/ajbeck/goldmark-adf/v2/adfschema"
 
 if err := adfschema.Validate(jsonBytes); err != nil {
     log.Printf("Invalid ADF: %v", err)
@@ -280,6 +285,7 @@ Output:
 ## Documentation
 
 - [Markdown Extensions](docs/extensions.md)
+- [Migrating to v2](docs/migrating-to-v2.md)
 - [Goldmark to ADF Node Mapping](docs/node-mapping.md)
 - [Implementation Plan](docs/specs/getting-started.md)
 - [HTML Renderer Patterns](docs/html-renderer-patterns.md)

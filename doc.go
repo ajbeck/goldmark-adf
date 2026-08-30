@@ -1,5 +1,3 @@
-//go:build goexperiment.jsonv2
-
 // Package adf provides a [goldmark] renderer for Atlassian Document Format (ADF).
 //
 // This package implements a custom renderer for the goldmark Markdown parser
@@ -8,14 +6,11 @@
 //
 // # Build Requirements
 //
-// This package requires Go 1.25+ with the experimental json/v2 package:
-//
-//	GOEXPERIMENT=jsonv2 go build ./...
-//	GOEXPERIMENT=jsonv2 go test ./...
+// This package requires Go 1.27 or later.
 //
 // # Basic Usage
 //
-// Use [New] to create a reusable goldmark instance:
+// Use [New] to create a reusable converter:
 //
 //	md := adf.New()
 //	var buf bytes.Buffer
@@ -43,7 +38,7 @@
 // The renderer can be configured using functional options:
 //
 //	md := adf.New(
-//	    adf.WithTableLayout("wide"),
+//	    adf.WithTableLayout(adf.TableLayoutWide),
 //	    adf.WithImageHandler(customHandler),
 //	)
 //
@@ -51,7 +46,7 @@
 //
 // The [adfschema] subpackage provides JSON Schema validation for ADF documents:
 //
-//	import "github.com/ajbeck/goldmark-adf/adfschema"
+//	import "github.com/ajbeck/goldmark-adf/v2/adfschema"
 //
 //	if err := adfschema.Validate(jsonBytes); err != nil {
 //	    log.Printf("Invalid ADF: %v", err)
@@ -66,10 +61,12 @@
 // converted to links with the image URL.
 //
 // GFM extensions (with [NewWithGFM]): tables, strikethrough, autolinks, and
-// task lists (rendered as "[x]" or "[ ]" text prefixes).
+// task lists. Fully representable unordered task lists are emitted as ADF
+// task lists; ordered or mixed lists retain their textual checkbox markers.
 //
-// Raw HTML is skipped as ADF does not support arbitrary HTML content.
+// Raw HTML blocks and inline tags are skipped as ADF does not support arbitrary
+// HTML content; text surrounding inline tags is preserved.
 //
 // [goldmark]: https://github.com/yuin/goldmark
-// [adfschema]: https://pkg.go.dev/github.com/ajbeck/goldmark-adf/adfschema
+// [adfschema]: https://pkg.go.dev/github.com/ajbeck/goldmark-adf/v2/adfschema
 package adf

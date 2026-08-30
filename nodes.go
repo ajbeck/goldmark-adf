@@ -1,5 +1,3 @@
-//go:build goexperiment.jsonv2
-
 package adf
 
 import (
@@ -333,7 +331,7 @@ func NewBlockCardNode(url string) *Node {
 func NewEmbedCardNode(url string) *Node {
 	return &Node{
 		Type:  "embedCard",
-		Attrs: map[string]any{"url": url},
+		Attrs: map[string]any{"url": url, "layout": "center"},
 	}
 }
 
