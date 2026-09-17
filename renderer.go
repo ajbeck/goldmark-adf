@@ -514,6 +514,9 @@ func (r *Renderer) renderText(w util.BufWriter, source []byte, node ast.Node, en
 	n := node.(*ast.Text)
 	segment := n.Segment
 	text := string(segment.Value(source))
+	if n.SoftLineBreak() {
+		text += " "
+	}
 
 	if text != "" {
 		marks := r.currentMarks()
