@@ -296,7 +296,7 @@ Output:
 ## ADF Resources
 
 - [ADF Structure Documentation](https://developer.atlassian.com/cloud/jira/platform/apis/document/structure/)
-- [ADF JSON Schema](https://unpkg.com/@atlaskit/adf-schema@51.5.6/dist/json-schema/v1/full.json)
+- [ADF JSON Schema](https://unpkg.com/@atlaskit/adf-schema@57.5.0/dist/json-schema/v1/full.json)
 
 ## License
 
