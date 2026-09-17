@@ -2,6 +2,9 @@
 
 goldmark-adf v2 moves to Goldmark v2 and Go 1.27. It is a new Go module
 major version; v1 remains available for consumers that cannot migrate yet.
+The `release/v1` branch receives selective correctness and security fixes and
+retains Go 1.25.6 compatibility with `GOEXPERIMENT=jsonv2`. New features are
+developed on v2.
 
 ## Update the module path
 
