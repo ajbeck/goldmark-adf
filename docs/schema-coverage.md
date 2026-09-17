@@ -2,6 +2,24 @@
 
 This document tracks which ADF nodes goldmark-adf can produce from markdown input. For extension usage details, see [extensions.md](extensions.md). For ADF node reference (schema-only nodes without official docs), see the [adf-nodes.md](https://github.com/ajbeck/adf-to-markdown/blob/main/docs/adf-nodes.md) document in adf-to-markdown.
 
+## Schema baseline
+
+Validation uses `@atlaskit/adf-schema` **57.5.0**, normalized from draft-04 to
+draft-07. The unmodified upstream schema, license, and regeneration instructions
+are kept in [`adfschema`](../adfschema/README.md).
+
+| Schema capability | Conversion support |
+|---|---|
+| Status named and six-digit hex colours | Produced by `[status:text\|#12AbEf]` and named-colour syntax |
+| Paragraph `fontSize: small` marks | Accepted by validation; no Markdown parser support yet |
+| Code block `wrap` and `hideLineNumbers` | Accepted by validation; Markdown does not specify these display settings |
+| `valign` on layout columns and table cells/headers | Accepted by validation; not emitted from Markdown |
+| `dataConsumer` marks on media and inline media | Accepted by validation; not emitted from Markdown |
+| Leading nested lists and task lists | Accepted by validation; every child must have an allowed node type |
+
+ADF data properties named `id` are preserved during schema normalization. They
+are distinct from the JSON Schema identifier keyword `$id`.
+
 Status labels:
 
 - `implemented`: parser extension and renderer produce correct ADF output

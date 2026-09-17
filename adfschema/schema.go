@@ -23,6 +23,8 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
+// Generated from @atlaskit/adf-schema 57.5.0; see README.md in this package.
+//
 //go:embed adf-schema.json
 var schemaJSON []byte
 

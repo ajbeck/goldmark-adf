@@ -1,272 +1,71 @@
 {
   "$ref": "#/definitions/doc_node",
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Schema for Atlassian Document Format.",
+  "$schema": "http://json-schema.org/draft-04/schema#",
   "definitions": {
     "alignment_mark": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["alignment"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "align": {
-              "enum": [
-                "center",
-                "end"
-              ]
+              "enum": ["center", "end"]
             }
           },
-          "required": [
-            "align"
-          ],
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "alignment"
-          ]
+          "required": ["align"],
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "required": ["type", "attrs"],
+      "additionalProperties": false
     },
     "annotation_mark": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["annotation"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
-            "annotationType": {
-              "enum": [
-                "inlineComment"
-              ]
-            },
             "id": {
               "type": "string"
+            },
+            "annotationType": {
+              "enum": ["inlineComment"]
             }
           },
-          "required": [
-            "id",
-            "annotationType"
-          ],
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "annotation"
-          ]
+          "required": ["id", "annotationType"],
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "required": ["type", "attrs"],
+      "additionalProperties": false
     },
     "backgroundColor_mark": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["backgroundColor"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "color": {
               "pattern": "^#[0-9a-fA-F]{6}$",
               "type": "string"
             }
           },
-          "required": [
-            "color"
-          ],
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "backgroundColor"
-          ]
+          "required": ["color"],
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
-    },
-    "blockCard_node": {
-      "additionalProperties": false,
-      "properties": {
-        "attrs": {
-          "anyOf": [
-            {
-              "additionalProperties": false,
-              "properties": {
-                "datasource": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "parameters": {},
-                    "views": {
-                      "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "properties": {},
-                          "type": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "type"
-                        ],
-                        "type": "object"
-                      },
-                      "minItems": 1,
-                      "type": "array"
-                    }
-                  },
-                  "required": [
-                    "id",
-                    "parameters",
-                    "views"
-                  ],
-                  "type": "object"
-                },
-                "layout": {
-                  "enum": [
-                    "wide",
-                    "full-width",
-                    "center",
-                    "wrap-right",
-                    "wrap-left",
-                    "align-end",
-                    "align-start"
-                  ]
-                },
-                "localId": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "width": {
-                  "type": "number"
-                }
-              },
-              "required": [
-                "datasource"
-              ],
-              "type": "object"
-            },
-            {
-              "additionalProperties": false,
-              "properties": {
-                "localId": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "url"
-              ],
-              "type": "object"
-            },
-            {
-              "additionalProperties": false,
-              "properties": {
-                "data": {},
-                "localId": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "data"
-              ],
-              "type": "object"
-            }
-          ]
-        },
-        "type": {
-          "enum": [
-            "blockCard"
-          ]
-        }
-      },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
-    },
-    "blockTaskItem_node": {
-      "additionalProperties": false,
-      "properties": {
-        "attrs": {
-          "additionalProperties": false,
-          "properties": {
-            "localId": {
-              "type": "string"
-            },
-            "state": {
-              "enum": [
-                "TODO",
-                "DONE"
-              ]
-            }
-          },
-          "required": [
-            "localId",
-            "state"
-          ],
-          "type": "object"
-        },
-        "content": {
-          "items": [
-            {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/paragraph_with_no_marks_node"
-                },
-                {
-                  "$ref": "#/definitions/paragraph_with_font_size_node"
-                },
-                {
-                  "$ref": "#/definitions/extension_with_marks_node"
-                }
-              ]
-            },
-            {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/paragraph_with_no_marks_node"
-                },
-                {
-                  "$ref": "#/definitions/paragraph_with_font_size_node"
-                },
-                {
-                  "$ref": "#/definitions/extension_with_marks_node"
-                }
-              ]
-            }
-          ],
-          "minItems": 1,
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "blockTaskItem"
-          ]
-        }
-      },
-      "required": [
-        "type",
-        "attrs",
-        "content"
-      ],
-      "type": "object"
+      "required": ["type", "attrs"],
+      "additionalProperties": false
     },
     "block_content": {
       "anyOf": [
@@ -341,19 +140,114 @@
         }
       ]
     },
-    "blockquote_node": {
-      "additionalProperties": false,
+    "blockCard_node": {
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["blockCard"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "localId": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "datasource": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "parameters": {},
+                    "views": {
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "properties": {},
+                          "type": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["type"],
+                        "additionalProperties": false
+                      },
+                      "minItems": 1,
+                      "type": "array"
+                    }
+                  },
+                  "required": ["id", "parameters", "views"]
+                },
+                "width": {
+                  "type": "number"
+                },
+                "layout": {
+                  "enum": [
+                    "wide",
+                    "full-width",
+                    "center",
+                    "wrap-right",
+                    "wrap-left",
+                    "align-end",
+                    "align-start"
+                  ]
+                }
+              },
+              "required": ["datasource"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string"
+                },
+                "localId": {
+                  "type": "string"
+                }
+              },
+              "required": ["url"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "data": {},
+                "localId": {
+                  "type": "string"
+                }
+              },
+              "required": ["data"],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["type", "attrs"]
+    },
+    "blockquote_node": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": ["blockquote"]
+        },
+        "attrs": {
+          "type": "object",
           "properties": {
             "localId": {
               "type": "string"
             }
           },
-          "type": "object"
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "anyOf": [
               {
@@ -382,26 +276,78 @@
               }
             ]
           },
-          "minItems": 1,
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "blockquote"
-          ]
+          "minItems": 1
         }
       },
-      "required": [
-        "type",
-        "content"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "content"]
+    },
+    "blockTaskItem_node": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": ["blockTaskItem"]
+        },
+        "attrs": {
+          "type": "object",
+          "properties": {
+            "localId": {
+              "type": "string"
+            },
+            "state": {
+              "enum": ["TODO", "DONE"]
+            }
+          },
+          "required": ["localId", "state"],
+          "additionalProperties": false
+        },
+        "content": {
+          "type": "array",
+          "items": [
+            {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/paragraph_with_no_marks_node"
+                },
+                {
+                  "$ref": "#/definitions/paragraph_with_font_size_node"
+                },
+                {
+                  "$ref": "#/definitions/extension_with_marks_node"
+                }
+              ]
+            },
+            {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/paragraph_with_no_marks_node"
+                },
+                {
+                  "$ref": "#/definitions/paragraph_with_font_size_node"
+                },
+                {
+                  "$ref": "#/definitions/extension_with_marks_node"
+                }
+              ]
+            }
+          ],
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": ["type", "attrs", "content"]
     },
     "bodiedExtension_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["bodiedExtension"]
+        },
+        "marks": {
+          "type": "array"
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "extensionKey": {
               "minLength": 1,
@@ -411,50 +357,31 @@
               "minLength": 1,
               "type": "string"
             },
+            "parameters": {},
+            "text": {
+              "type": "string"
+            },
             "layout": {
-              "enum": [
-                "wide",
-                "full-width",
-                "default"
-              ]
+              "enum": ["wide", "full-width", "default"]
             },
             "localId": {
               "minLength": 1,
               "type": "string"
-            },
-            "parameters": {},
-            "text": {
-              "type": "string"
             }
           },
-          "required": [
-            "extensionKey",
-            "extensionType"
-          ],
-          "type": "object"
+          "required": ["extensionKey", "extensionType"],
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "$ref": "#/definitions/non_nestable_block_content"
           },
-          "minItems": 1,
-          "type": "array"
-        },
-        "marks": {
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "bodiedExtension"
-          ]
+          "minItems": 1
         }
       },
-      "required": [
-        "type",
-        "attrs",
-        "content"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "attrs", "content"]
     },
     "bodiedExtension_with_marks_node": {
       "allOf": [
@@ -462,9 +389,10 @@
           "$ref": "#/definitions/bodiedExtension_node"
         },
         {
-          "additionalProperties": true,
+          "type": "object",
           "properties": {
             "marks": {
+              "type": "array",
               "items": {
                 "anyOf": [
                   {
@@ -474,34 +402,40 @@
                     "$ref": "#/definitions/fragment_mark"
                   }
                 ]
-              },
-              "type": "array"
+              }
             }
           },
-          "type": "object"
+          "additionalProperties": true
         }
       ]
     },
     "bodiedSyncBlock_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["bodiedSyncBlock"]
+        },
+        "marks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/breakout_mark"
+          }
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
-            "localId": {
+            "resourceId": {
               "type": "string"
             },
-            "resourceId": {
+            "localId": {
               "type": "string"
             }
           },
-          "required": [
-            "resourceId",
-            "localId"
-          ],
-          "type": "object"
+          "required": ["resourceId", "localId"],
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "anyOf": [
               {
@@ -584,139 +518,104 @@
               }
             ]
           },
-          "minItems": 1,
-          "type": "array"
-        },
-        "marks": {
-          "items": {
-            "$ref": "#/definitions/breakout_mark"
-          },
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "bodiedSyncBlock"
-          ]
+          "minItems": 1
         }
       },
-      "required": [
-        "type",
-        "attrs",
-        "content"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "attrs", "content"]
     },
     "border_mark": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["border"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
+            "size": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 3
+            },
             "color": {
               "pattern": "^#[0-9a-fA-F]{8}$|^#[0-9a-fA-F]{6}$",
               "type": "string"
-            },
-            "size": {
-              "maximum": 3,
-              "minimum": 1,
-              "type": "number"
             }
           },
-          "required": [
-            "size",
-            "color"
-          ],
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "border"
-          ]
+          "required": ["size", "color"],
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "required": ["type", "attrs"],
+      "additionalProperties": false
     },
     "breakout_mark": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["breakout"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "mode": {
-              "enum": [
-                "wide",
-                "full-width"
-              ]
+              "enum": ["wide", "full-width"]
             },
             "width": {
               "type": "number"
             }
           },
-          "required": [
-            "mode"
-          ],
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "breakout"
-          ]
+          "required": ["mode"],
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "required": ["type", "attrs"],
+      "additionalProperties": false
     },
     "bulletList_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["bulletList"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "localId": {
               "type": "string"
             }
           },
-          "type": "object"
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "$ref": "#/definitions/listItem_node"
           },
-          "minItems": 1,
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "bulletList"
-          ]
+          "minItems": 1
         }
       },
-      "required": [
-        "type",
-        "content"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "content"]
     },
     "caption_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["caption"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "localId": {
               "type": "string"
             }
           },
-          "type": "object"
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "anyOf": [
               {
@@ -747,111 +646,11 @@
                 "$ref": "#/definitions/code_inline_node"
               }
             ]
-          },
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "caption"
-          ]
+          }
         }
       },
-      "required": [
-        "type"
-      ],
-      "type": "object"
-    },
-    "codeBlock_node": {
       "additionalProperties": false,
-      "properties": {
-        "attrs": {
-          "additionalProperties": false,
-          "properties": {
-            "hideLineNumbers": {
-              "type": "boolean"
-            },
-            "language": {
-              "type": "string"
-            },
-            "localId": {
-              "type": "string"
-            },
-            "uniqueId": {
-              "type": "string"
-            },
-            "wrap": {
-              "type": "boolean"
-            }
-          },
-          "type": "object"
-        },
-        "content": {
-          "items": {
-            "$ref": "#/definitions/text_with_no_marks_node"
-          },
-          "type": "array"
-        },
-        "marks": {
-          "maxItems": 0,
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "codeBlock"
-          ]
-        }
-      },
-      "required": [
-        "type"
-      ],
-      "type": "object"
-    },
-    "codeBlock_root_only_node": {
-      "additionalProperties": false,
-      "properties": {
-        "attrs": {
-          "additionalProperties": false,
-          "properties": {
-            "hideLineNumbers": {
-              "type": "boolean"
-            },
-            "language": {
-              "type": "string"
-            },
-            "localId": {
-              "type": "string"
-            },
-            "uniqueId": {
-              "type": "string"
-            },
-            "wrap": {
-              "type": "boolean"
-            }
-          },
-          "type": "object"
-        },
-        "content": {
-          "items": {
-            "$ref": "#/definitions/text_with_no_marks_node"
-          },
-          "type": "array"
-        },
-        "marks": {
-          "items": {
-            "$ref": "#/definitions/breakout_mark"
-          },
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "codeBlock"
-          ]
-        }
-      },
-      "required": [
-        "type"
-      ],
-      "type": "object"
+      "required": ["type"]
     },
     "code_inline_node": {
       "allOf": [
@@ -859,9 +658,10 @@
           "$ref": "#/definitions/text_node"
         },
         {
-          "additionalProperties": true,
+          "type": "object",
           "properties": {
             "marks": {
+              "type": "array",
               "items": {
                 "anyOf": [
                   {
@@ -874,95 +674,163 @@
                     "$ref": "#/definitions/annotation_mark"
                   }
                 ]
-              },
-              "type": "array"
+              }
             }
           },
-          "type": "object"
+          "additionalProperties": true
         }
       ]
     },
     "code_mark": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
         "type": {
-          "enum": [
-            "code"
-          ]
+          "enum": ["code"]
         }
       },
-      "required": [
-        "type"
-      ],
-      "type": "object"
+      "required": ["type"],
+      "additionalProperties": false
     },
-    "dataConsumer_mark": {
-      "additionalProperties": false,
+    "codeBlock_node": {
+      "type": "object",
       "properties": {
-        "attrs": {
-          "additionalProperties": false,
-          "properties": {
-            "sources": {
-              "items": {
-                "type": "string"
-              },
-              "minItems": 1,
-              "type": "array"
-            }
-          },
-          "required": [
-            "sources"
-          ],
-          "type": "object"
+        "type": {
+          "enum": ["codeBlock"]
         },
-        "type": {
-          "enum": [
-            "dataConsumer"
-          ]
-        }
-      },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
-    },
-    "date_node": {
-      "additionalProperties": false,
-      "properties": {
+        "marks": {
+          "type": "array",
+          "maxItems": 0
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
+            "language": {
+              "type": "string"
+            },
+            "uniqueId": {
+              "type": "string"
+            },
             "localId": {
               "type": "string"
             },
+            "wrap": {
+              "type": "boolean"
+            },
+            "hideLineNumbers": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "content": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/text_with_no_marks_node"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": ["type"]
+    },
+    "codeBlock_root_only_node": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": ["codeBlock"]
+        },
+        "marks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/breakout_mark"
+          }
+        },
+        "attrs": {
+          "type": "object",
+          "properties": {
+            "language": {
+              "type": "string"
+            },
+            "uniqueId": {
+              "type": "string"
+            },
+            "localId": {
+              "type": "string"
+            },
+            "wrap": {
+              "type": "boolean"
+            },
+            "hideLineNumbers": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "content": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/text_with_no_marks_node"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": ["type"]
+    },
+    "dataConsumer_mark": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": ["dataConsumer"]
+        },
+        "attrs": {
+          "type": "object",
+          "properties": {
+            "sources": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            }
+          },
+          "required": ["sources"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["type", "attrs"],
+      "additionalProperties": false
+    },
+    "date_node": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": ["date"]
+        },
+        "attrs": {
+          "type": "object",
+          "properties": {
             "timestamp": {
               "minLength": 1,
               "type": "string"
+            },
+            "localId": {
+              "type": "string"
             }
           },
-          "required": [
-            "timestamp"
-          ],
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "date"
-          ]
+          "required": ["timestamp"],
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "attrs"]
     },
     "decisionItem_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["decisionItem"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "localId": {
               "type": "string"
@@ -971,69 +839,54 @@
               "type": "string"
             }
           },
-          "required": [
-            "localId",
-            "state"
-          ],
-          "type": "object"
+          "required": ["localId", "state"],
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "$ref": "#/definitions/inline_node"
-          },
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "decisionItem"
-          ]
+          }
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "attrs"]
     },
     "decisionList_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["decisionList"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "localId": {
               "type": "string"
             }
           },
-          "required": [
-            "localId"
-          ],
-          "type": "object"
+          "required": ["localId"],
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "$ref": "#/definitions/decisionItem_node"
           },
-          "minItems": 1,
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "decisionList"
-          ]
+          "minItems": 1
         }
       },
-      "required": [
-        "type",
-        "attrs",
-        "content"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "attrs", "content"]
     },
     "doc_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["doc"]
+        },
         "content": {
+          "type": "array",
           "items": {
             "anyOf": [
               {
@@ -1121,47 +974,37 @@
                 "$ref": "#/definitions/bodiedSyncBlock_node"
               }
             ]
-          },
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "doc"
-          ]
+          }
         },
         "version": {
-          "enum": [
-            1
-          ]
+          "enum": [1]
         }
       },
-      "required": [
-        "version",
-        "type",
-        "content"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["version", "type", "content"]
     },
     "em_mark": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
         "type": {
-          "enum": [
-            "em"
-          ]
+          "enum": ["em"]
         }
       },
-      "required": [
-        "type"
-      ],
-      "type": "object"
+      "required": ["type"],
+      "additionalProperties": false
     },
     "embedCard_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["embedCard"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
+            "url": {
+              "type": "string"
+            },
             "layout": {
               "enum": [
                 "wide",
@@ -1173,8 +1016,10 @@
                 "align-start"
               ]
             },
-            "localId": {
-              "type": "string"
+            "width": {
+              "type": "number",
+              "maximum": 100,
+              "minimum": 0
             },
             "originalHeight": {
               "type": "number"
@@ -1182,85 +1027,70 @@
             "originalWidth": {
               "type": "number"
             },
-            "url": {
-              "type": "string"
-            },
-            "width": {
-              "maximum": 100,
-              "minimum": 0,
-              "type": "number"
-            }
-          },
-          "required": [
-            "url",
-            "layout"
-          ],
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "embedCard"
-          ]
-        }
-      },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
-    },
-    "emoji_node": {
-      "additionalProperties": false,
-      "properties": {
-        "attrs": {
-          "additionalProperties": false,
-          "properties": {
-            "id": {
-              "type": "string"
-            },
             "localId": {
               "type": "string"
-            },
+            }
+          },
+          "required": ["url", "layout"],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "required": ["type", "attrs"]
+    },
+    "emoji_node": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": ["emoji"]
+        },
+        "attrs": {
+          "type": "object",
+          "properties": {
             "shortName": {
+              "type": "string"
+            },
+            "id": {
               "type": "string"
             },
             "text": {
               "type": "string"
+            },
+            "localId": {
+              "type": "string"
             }
           },
-          "required": [
-            "shortName"
-          ],
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "emoji"
-          ]
+          "required": ["shortName"],
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "attrs"]
     },
     "expand_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["expand"]
+        },
+        "marks": {
+          "type": "array",
+          "maxItems": 0
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
-            "localId": {
+            "title": {
               "type": "string"
             },
-            "title": {
+            "localId": {
               "type": "string"
             }
           },
-          "type": "object"
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "anyOf": [
               {
@@ -1271,41 +1101,38 @@
               }
             ]
           },
-          "minItems": 1,
-          "type": "array"
-        },
-        "marks": {
-          "maxItems": 0,
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "expand"
-          ]
+          "minItems": 1
         }
       },
-      "required": [
-        "type",
-        "content"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "content"]
     },
     "expand_root_only_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["expand"]
+        },
+        "marks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/breakout_mark"
+          }
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
-            "localId": {
+            "title": {
               "type": "string"
             },
-            "title": {
+            "localId": {
               "type": "string"
             }
           },
-          "type": "object"
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "anyOf": [
               {
@@ -1316,32 +1143,23 @@
               }
             ]
           },
-          "minItems": 1,
-          "type": "array"
-        },
-        "marks": {
-          "items": {
-            "$ref": "#/definitions/breakout_mark"
-          },
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "expand"
-          ]
+          "minItems": 1
         }
       },
-      "required": [
-        "type",
-        "content"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "content"]
     },
     "extension_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["extension"]
+        },
+        "marks": {
+          "type": "array"
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "extensionKey": {
               "minLength": 1,
@@ -1351,42 +1169,24 @@
               "minLength": 1,
               "type": "string"
             },
+            "parameters": {},
+            "text": {
+              "type": "string"
+            },
             "layout": {
-              "enum": [
-                "wide",
-                "full-width",
-                "default"
-              ]
+              "enum": ["wide", "full-width", "default"]
             },
             "localId": {
               "minLength": 1,
               "type": "string"
-            },
-            "parameters": {},
-            "text": {
-              "type": "string"
             }
           },
-          "required": [
-            "extensionKey",
-            "extensionType"
-          ],
-          "type": "object"
-        },
-        "marks": {
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "extension"
-          ]
+          "required": ["extensionKey", "extensionType"],
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "attrs"]
     },
     "extension_with_marks_node": {
       "allOf": [
@@ -1394,9 +1194,10 @@
           "$ref": "#/definitions/extension_node"
         },
         {
-          "additionalProperties": true,
+          "type": "object",
           "properties": {
             "marks": {
+              "type": "array",
               "items": {
                 "anyOf": [
                   {
@@ -1406,42 +1207,32 @@
                     "$ref": "#/definitions/fragment_mark"
                   }
                 ]
-              },
-              "type": "array"
+              }
             }
           },
-          "type": "object"
+          "additionalProperties": true
         }
       ]
     },
     "fontSize_mark": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["fontSize"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "fontSize": {
-              "enum": [
-                "small"
-              ]
+              "enum": ["small"]
             }
           },
-          "required": [
-            "fontSize"
-          ],
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "fontSize"
-          ]
+          "required": ["fontSize"],
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "required": ["type", "attrs"],
+      "additionalProperties": false
     },
     "formatted_text_inline_node": {
       "allOf": [
@@ -1449,9 +1240,10 @@
           "$ref": "#/definitions/text_node"
         },
         {
-          "additionalProperties": true,
+          "type": "object",
           "properties": {
             "marks": {
+              "type": "array",
               "items": {
                 "anyOf": [
                   {
@@ -1482,19 +1274,21 @@
                     "$ref": "#/definitions/backgroundColor_mark"
                   }
                 ]
-              },
-              "type": "array"
+              }
             }
           },
-          "type": "object"
+          "additionalProperties": true
         }
       ]
     },
     "fragment_mark": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["fragment"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "localId": {
               "minLength": 1,
@@ -1504,91 +1298,68 @@
               "type": "string"
             }
           },
-          "required": [
-            "localId"
-          ],
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "fragment"
-          ]
+          "required": ["localId"],
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "required": ["type", "attrs"],
+      "additionalProperties": false
     },
     "hardBreak_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["hardBreak"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
+            "text": {
+              "enum": ["\n"]
+            },
             "localId": {
               "type": "string"
-            },
-            "text": {
-              "enum": [
-                "\n"
-              ]
             }
           },
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "hardBreak"
-          ]
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type"]
     },
     "heading_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
-        "attrs": {
-          "additionalProperties": false,
-          "properties": {
-            "level": {
-              "maximum": 6,
-              "minimum": 1,
-              "type": "number"
-            },
-            "localId": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "level"
-          ],
-          "type": "object"
-        },
-        "content": {
-          "items": {
-            "$ref": "#/definitions/inline_node"
-          },
-          "type": "array"
+        "type": {
+          "enum": ["heading"]
         },
         "marks": {
           "type": "array"
         },
-        "type": {
-          "enum": [
-            "heading"
-          ]
+        "attrs": {
+          "type": "object",
+          "properties": {
+            "level": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 6
+            },
+            "localId": {
+              "type": "string"
+            }
+          },
+          "required": ["level"],
+          "additionalProperties": false
+        },
+        "content": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/inline_node"
+          }
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "attrs"]
     },
     "heading_with_alignment_node": {
       "allOf": [
@@ -1596,16 +1367,16 @@
           "$ref": "#/definitions/heading_node"
         },
         {
-          "additionalProperties": true,
+          "type": "object",
           "properties": {
             "marks": {
+              "type": "array",
               "items": {
                 "$ref": "#/definitions/alignment_mark"
-              },
-              "type": "array"
+              }
             }
           },
-          "type": "object"
+          "additionalProperties": true
         }
       ]
     },
@@ -1615,16 +1386,16 @@
           "$ref": "#/definitions/heading_node"
         },
         {
-          "additionalProperties": true,
+          "type": "object",
           "properties": {
             "marks": {
+              "type": "array",
               "items": {
                 "$ref": "#/definitions/indentation_mark"
-              },
-              "type": "array"
+              }
             }
           },
-          "type": "object"
+          "additionalProperties": true
         }
       ]
     },
@@ -1634,162 +1405,38 @@
           "$ref": "#/definitions/heading_node"
         },
         {
-          "additionalProperties": true,
+          "type": "object",
           "properties": {
             "marks": {
-              "maxItems": 0,
-              "type": "array"
+              "type": "array",
+              "maxItems": 0
             }
           },
-          "type": "object"
+          "additionalProperties": true
         }
       ]
     },
     "indentation_mark": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["indentation"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "level": {
-              "maximum": 6,
+              "type": "number",
               "minimum": 1,
-              "type": "number"
+              "maximum": 6
             }
           },
-          "required": [
-            "level"
-          ],
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "indentation"
-          ]
+          "required": ["level"],
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
-    },
-    "inlineCard_node": {
-      "additionalProperties": false,
-      "properties": {
-        "attrs": {
-          "anyOf": [
-            {
-              "additionalProperties": false,
-              "properties": {
-                "localId": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "url"
-              ],
-              "type": "object"
-            },
-            {
-              "additionalProperties": false,
-              "properties": {
-                "data": {},
-                "localId": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "data"
-              ],
-              "type": "object"
-            }
-          ]
-        },
-        "type": {
-          "enum": [
-            "inlineCard"
-          ]
-        }
-      },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
-    },
-    "inlineExtension_node": {
-      "additionalProperties": false,
-      "properties": {
-        "attrs": {
-          "additionalProperties": false,
-          "properties": {
-            "extensionKey": {
-              "minLength": 1,
-              "type": "string"
-            },
-            "extensionType": {
-              "minLength": 1,
-              "type": "string"
-            },
-            "localId": {
-              "minLength": 1,
-              "type": "string"
-            },
-            "parameters": {},
-            "text": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "extensionKey",
-            "extensionType"
-          ],
-          "type": "object"
-        },
-        "marks": {
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "inlineExtension"
-          ]
-        }
-      },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
-    },
-    "inlineExtension_with_marks_node": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/inlineExtension_node"
-        },
-        {
-          "additionalProperties": true,
-          "properties": {
-            "marks": {
-              "items": {
-                "anyOf": [
-                  {
-                    "$ref": "#/definitions/dataConsumer_mark"
-                  },
-                  {
-                    "$ref": "#/definitions/fragment_mark"
-                  }
-                ]
-              },
-              "type": "array"
-            }
-          },
-          "type": "object"
-        }
-      ]
+      "required": ["type", "attrs"],
+      "additionalProperties": false
     },
     "inline_node": {
       "anyOf": [
@@ -1828,52 +1475,140 @@
         }
       ]
     },
-    "layoutColumn_node": {
-      "additionalProperties": false,
+    "inlineCard_node": {
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["inlineCard"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string"
+                },
+                "localId": {
+                  "type": "string"
+                }
+              },
+              "required": ["url"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "data": {},
+                "localId": {
+                  "type": "string"
+                }
+              },
+              "required": ["data"],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["type", "attrs"]
+    },
+    "inlineExtension_node": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": ["inlineExtension"]
+        },
+        "marks": {
+          "type": "array"
+        },
+        "attrs": {
+          "type": "object",
           "properties": {
+            "extensionKey": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "extensionType": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "parameters": {},
+            "text": {
+              "type": "string"
+            },
+            "localId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": ["extensionKey", "extensionType"],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "required": ["type", "attrs"]
+    },
+    "inlineExtension_with_marks_node": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/inlineExtension_node"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "marks": {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/dataConsumer_mark"
+                  },
+                  {
+                    "$ref": "#/definitions/fragment_mark"
+                  }
+                ]
+              }
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "layoutColumn_node": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": ["layoutColumn"]
+        },
+        "attrs": {
+          "type": "object",
+          "properties": {
+            "width": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
             "localId": {
               "type": "string"
             },
             "valign": {
-              "enum": [
-                "top",
-                "middle",
-                "bottom"
-              ]
-            },
-            "width": {
-              "maximum": 100,
-              "minimum": 0,
-              "type": "number"
+              "enum": ["top", "middle", "bottom"]
             }
           },
-          "required": [
-            "width"
-          ],
-          "type": "object"
+          "required": ["width"],
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "$ref": "#/definitions/block_content"
           },
-          "minItems": 1,
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "layoutColumn"
-          ]
+          "minItems": 1
         }
       },
-      "required": [
-        "type",
-        "attrs",
-        "content"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "attrs", "content"]
     },
     "layoutSection_full_node": {
       "allOf": [
@@ -1881,118 +1616,108 @@
           "$ref": "#/definitions/layoutSection_node"
         },
         {
-          "additionalProperties": true,
+          "type": "object",
           "properties": {
+            "marks": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/breakout_mark"
+              }
+            },
             "content": {
+              "type": "array",
               "items": {
                 "$ref": "#/definitions/layoutColumn_node"
               },
-              "maxItems": 3,
               "minItems": 2,
-              "type": "array"
-            },
-            "marks": {
-              "items": {
-                "$ref": "#/definitions/breakout_mark"
-              },
-              "type": "array"
+              "maxItems": 3
             }
           },
-          "required": [
-            "content"
-          ],
-          "type": "object"
+          "required": ["content"],
+          "additionalProperties": true
         }
       ]
     },
     "layoutSection_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["layoutSection"]
+        },
+        "marks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/breakout_mark"
+          }
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "localId": {
               "type": "string"
             }
           },
-          "type": "object"
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "$ref": "#/definitions/layoutColumn_node"
-          },
-          "type": "array"
-        },
-        "marks": {
-          "items": {
-            "$ref": "#/definitions/breakout_mark"
-          },
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "layoutSection"
-          ]
+          }
         }
       },
-      "required": [
-        "type",
-        "content"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "content"]
     },
     "link_mark": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["link"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
-            "collection": {
+            "href": {
               "type": "string"
             },
-            "href": {
+            "title": {
               "type": "string"
             },
             "id": {
               "type": "string"
             },
-            "occurrenceKey": {
+            "collection": {
               "type": "string"
             },
-            "title": {
+            "occurrenceKey": {
               "type": "string"
             }
           },
-          "required": [
-            "href"
-          ],
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "link"
-          ]
+          "required": ["href"],
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "required": ["type", "attrs"],
+      "additionalProperties": false
     },
     "listItem_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["listItem"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "localId": {
               "type": "string"
             }
           },
-          "type": "object"
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "anyOf": [
               {
@@ -2024,88 +1749,20 @@
               }
             ]
           },
-          "minItems": 1,
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "listItem"
-          ]
+          "minItems": 1
         }
       },
-      "required": [
-        "type",
-        "content"
-      ],
-      "type": "object"
-    },
-    "mediaGroup_node": {
       "additionalProperties": false,
+      "required": ["type", "content"]
+    },
+    "media_node": {
+      "type": "object",
       "properties": {
-        "content": {
-          "items": {
-            "$ref": "#/definitions/media_node"
-          },
-          "minItems": 1,
-          "type": "array"
-        },
         "type": {
-          "enum": [
-            "mediaGroup"
-          ]
-        }
-      },
-      "required": [
-        "type",
-        "content"
-      ],
-      "type": "object"
-    },
-    "mediaInline_node": {
-      "additionalProperties": false,
-      "properties": {
-        "attrs": {
-          "additionalProperties": false,
-          "properties": {
-            "alt": {
-              "type": "string"
-            },
-            "collection": {
-              "type": "string"
-            },
-            "data": {},
-            "height": {
-              "type": "number"
-            },
-            "id": {
-              "minLength": 1,
-              "type": "string"
-            },
-            "localId": {
-              "type": "string"
-            },
-            "occurrenceKey": {
-              "minLength": 1,
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "link",
-                "file",
-                "image"
-              ]
-            },
-            "width": {
-              "type": "number"
-            }
-          },
-          "required": [
-            "id",
-            "collection"
-          ],
-          "type": "object"
+          "enum": ["media"]
         },
         "marks": {
+          "type": "array",
           "items": {
             "anyOf": [
               {
@@ -2121,173 +1778,23 @@
                 "$ref": "#/definitions/border_mark"
               }
             ]
-          },
-          "type": "array"
+          }
         },
-        "type": {
-          "enum": [
-            "mediaInline"
-          ]
-        }
-      },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
-    },
-    "mediaSingle_caption_node": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/mediaSingle_node"
-        },
-        {
-          "additionalProperties": true,
-          "properties": {
-            "content": {
-              "items": [
-                {
-                  "$ref": "#/definitions/media_node"
-                },
-                {
-                  "$ref": "#/definitions/caption_node"
-                }
-              ],
-              "maxItems": 2,
-              "minItems": 1,
-              "type": "array"
-            }
-          },
-          "required": [
-            "content"
-          ],
-          "type": "object"
-        }
-      ]
-    },
-    "mediaSingle_full_node": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/mediaSingle_node"
-        },
-        {
-          "additionalProperties": true,
-          "properties": {
-            "content": {
-              "items": {
-                "$ref": "#/definitions/media_node"
-              },
-              "maxItems": 1,
-              "minItems": 1,
-              "type": "array"
-            }
-          },
-          "required": [
-            "content"
-          ],
-          "type": "object"
-        }
-      ]
-    },
-    "mediaSingle_node": {
-      "additionalProperties": true,
-      "properties": {
         "attrs": {
           "anyOf": [
             {
-              "additionalProperties": false,
+              "type": "object",
               "properties": {
-                "layout": {
-                  "enum": [
-                    "wide",
-                    "full-width",
-                    "center",
-                    "wrap-right",
-                    "wrap-left",
-                    "align-end",
-                    "align-start"
-                  ]
+                "type": {
+                  "enum": ["link", "file"]
                 },
                 "localId": {
                   "type": "string"
                 },
-                "width": {
-                  "maximum": 100,
-                  "minimum": 0,
-                  "type": "number"
-                },
-                "widthType": {
-                  "enum": [
-                    "percentage"
-                  ]
-                }
-              },
-              "required": [
-                "layout"
-              ],
-              "type": "object"
-            },
-            {
-              "additionalProperties": false,
-              "properties": {
-                "layout": {
-                  "enum": [
-                    "wide",
-                    "full-width",
-                    "center",
-                    "wrap-right",
-                    "wrap-left",
-                    "align-end",
-                    "align-start"
-                  ]
-                },
-                "localId": {
+                "id": {
+                  "minLength": 1,
                   "type": "string"
                 },
-                "width": {
-                  "minimum": 0,
-                  "type": "number"
-                },
-                "widthType": {
-                  "enum": [
-                    "pixel"
-                  ]
-                }
-              },
-              "required": [
-                "width",
-                "widthType",
-                "layout"
-              ],
-              "type": "object"
-            }
-          ]
-        },
-        "marks": {
-          "items": {
-            "$ref": "#/definitions/link_mark"
-          },
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "mediaSingle"
-          ]
-        }
-      },
-      "required": [
-        "type"
-      ],
-      "type": "object"
-    },
-    "media_node": {
-      "additionalProperties": false,
-      "properties": {
-        "attrs": {
-          "anyOf": [
-            {
-              "additionalProperties": false,
-              "properties": {
                 "alt": {
                   "type": "string"
                 },
@@ -2297,67 +1804,73 @@
                 "height": {
                   "type": "number"
                 },
-                "id": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "localId": {
-                  "type": "string"
-                },
                 "occurrenceKey": {
                   "minLength": 1,
                   "type": "string"
-                },
-                "type": {
-                  "enum": [
-                    "link",
-                    "file"
-                  ]
                 },
                 "width": {
                   "type": "number"
                 }
               },
-              "required": [
-                "type",
-                "id",
-                "collection"
-              ],
-              "type": "object"
+              "required": ["type", "id", "collection"],
+              "additionalProperties": false
             },
             {
-              "additionalProperties": false,
+              "type": "object",
               "properties": {
+                "type": {
+                  "enum": ["external"]
+                },
+                "localId": {
+                  "type": "string"
+                },
                 "alt": {
                   "type": "string"
                 },
                 "height": {
                   "type": "number"
                 },
-                "localId": {
-                  "type": "string"
-                },
-                "type": {
-                  "enum": [
-                    "external"
-                  ]
+                "width": {
+                  "type": "number"
                 },
                 "url": {
                   "type": "string"
-                },
-                "width": {
-                  "type": "number"
                 }
               },
-              "required": [
-                "type",
-                "url"
-              ],
-              "type": "object"
+              "required": ["type", "url"],
+              "additionalProperties": false
             }
           ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["type", "attrs"]
+    },
+    "mediaGroup_node": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": ["mediaGroup"]
+        },
+        "content": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/media_node"
+          },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": ["type", "content"]
+    },
+    "mediaInline_node": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": ["mediaInline"]
         },
         "marks": {
+          "type": "array",
           "items": {
             "anyOf": [
               {
@@ -2373,30 +1886,181 @@
                 "$ref": "#/definitions/border_mark"
               }
             ]
-          },
-          "type": "array"
+          }
         },
+        "attrs": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "enum": ["link", "file", "image"]
+            },
+            "localId": {
+              "type": "string"
+            },
+            "id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "alt": {
+              "type": "string"
+            },
+            "collection": {
+              "type": "string"
+            },
+            "occurrenceKey": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "data": {}
+          },
+          "required": ["id", "collection"],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "required": ["type", "attrs"]
+    },
+    "mediaSingle_caption_node": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/mediaSingle_node"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "content": {
+              "type": "array",
+              "items": [
+                {
+                  "$ref": "#/definitions/media_node"
+                },
+                {
+                  "$ref": "#/definitions/caption_node"
+                }
+              ],
+              "minItems": 1,
+              "maxItems": 2
+            }
+          },
+          "required": ["content"],
+          "additionalProperties": true
+        }
+      ]
+    },
+    "mediaSingle_full_node": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/mediaSingle_node"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "content": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/media_node"
+              },
+              "minItems": 1,
+              "maxItems": 1
+            }
+          },
+          "required": ["content"],
+          "additionalProperties": true
+        }
+      ]
+    },
+    "mediaSingle_node": {
+      "type": "object",
+      "properties": {
         "type": {
-          "enum": [
-            "media"
+          "enum": ["mediaSingle"]
+        },
+        "marks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/link_mark"
+          }
+        },
+        "attrs": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "localId": {
+                  "type": "string"
+                },
+                "width": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "layout": {
+                  "enum": [
+                    "wide",
+                    "full-width",
+                    "center",
+                    "wrap-right",
+                    "wrap-left",
+                    "align-end",
+                    "align-start"
+                  ]
+                },
+                "widthType": {
+                  "enum": ["percentage"]
+                }
+              },
+              "required": ["layout"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "localId": {
+                  "type": "string"
+                },
+                "width": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "widthType": {
+                  "enum": ["pixel"]
+                },
+                "layout": {
+                  "enum": [
+                    "wide",
+                    "full-width",
+                    "center",
+                    "wrap-right",
+                    "wrap-left",
+                    "align-end",
+                    "align-start"
+                  ]
+                }
+              },
+              "required": ["width", "widthType", "layout"],
+              "additionalProperties": false
+            }
           ]
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "additionalProperties": true,
+      "required": ["type"]
     },
     "mention_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["mention"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
-            "accessLevel": {
-              "type": "string"
-            },
             "id": {
               "type": "string"
             },
@@ -2406,32 +2070,22 @@
             "text": {
               "type": "string"
             },
+            "accessLevel": {
+              "type": "string"
+            },
             "userType": {
-              "enum": [
-                "DEFAULT",
-                "SPECIAL",
-                "APP"
-              ]
+              "enum": ["DEFAULT", "SPECIAL", "APP"]
             }
           },
-          "required": [
-            "id"
-          ],
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "mention"
-          ]
+          "required": ["id"],
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "attrs"]
     },
     "nestedExpand_content": {
+      "type": "array",
       "items": {
         "anyOf": [
           {
@@ -2481,39 +2135,32 @@
           }
         ]
       },
-      "minItems": 1,
-      "type": "array"
+      "minItems": 1
     },
     "nestedExpand_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["nestedExpand"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
-            "localId": {
+            "title": {
               "type": "string"
             },
-            "title": {
+            "localId": {
               "type": "string"
             }
           },
-          "type": "object"
+          "additionalProperties": false
         },
         "content": {
           "$ref": "#/definitions/nestedExpand_content"
-        },
-        "type": {
-          "enum": [
-            "nestedExpand"
-          ]
         }
       },
-      "required": [
-        "type",
-        "content",
-        "attrs"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "content", "attrs"]
     },
     "nestedExpand_with_no_marks_node": {
       "allOf": [
@@ -2521,14 +2168,14 @@
           "$ref": "#/definitions/nestedExpand_node"
         },
         {
-          "additionalProperties": true,
+          "type": "object",
           "properties": {
             "marks": {
-              "maxItems": 0,
-              "type": "array"
+              "type": "array",
+              "maxItems": 0
             }
           },
-          "type": "object"
+          "additionalProperties": true
         }
       ]
     },
@@ -2591,61 +2238,44 @@
       ]
     },
     "orderedList_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["orderedList"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
+            "order": {
+              "type": "number",
+              "minimum": 0
+            },
             "localId": {
               "type": "string"
-            },
-            "order": {
-              "minimum": 0,
-              "type": "number"
             }
           },
-          "type": "object"
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "$ref": "#/definitions/listItem_node"
           },
-          "minItems": 1,
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "orderedList"
-          ]
+          "minItems": 1
         }
       },
-      "required": [
-        "type",
-        "content"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "content"]
     },
     "panel_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["panel"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
-            "localId": {
-              "type": "string"
-            },
-            "panelColor": {
-              "type": "string"
-            },
-            "panelIcon": {
-              "type": "string"
-            },
-            "panelIconId": {
-              "type": "string"
-            },
-            "panelIconText": {
-              "type": "string"
-            },
             "panelType": {
               "enum": [
                 "info",
@@ -2656,14 +2286,28 @@
                 "success",
                 "custom"
               ]
+            },
+            "panelIcon": {
+              "type": "string"
+            },
+            "panelIconId": {
+              "type": "string"
+            },
+            "panelIconText": {
+              "type": "string"
+            },
+            "panelColor": {
+              "type": "string"
+            },
+            "localId": {
+              "type": "string"
             }
           },
-          "required": [
-            "panelType"
-          ],
-          "type": "object"
+          "required": ["panelType"],
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "anyOf": [
               {
@@ -2710,53 +2354,39 @@
               }
             ]
           },
-          "minItems": 1,
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "panel"
-          ]
+          "minItems": 1
         }
       },
-      "required": [
-        "type",
-        "attrs",
-        "content"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "attrs", "content"]
     },
     "paragraph_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["paragraph"]
+        },
+        "marks": {
+          "type": "array"
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "localId": {
               "type": "string"
             }
           },
-          "type": "object"
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "$ref": "#/definitions/inline_node"
-          },
-          "type": "array"
-        },
-        "marks": {
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "paragraph"
-          ]
+          }
         }
       },
-      "required": [
-        "type"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type"]
     },
     "paragraph_with_alignment_node": {
       "allOf": [
@@ -2764,9 +2394,10 @@
           "$ref": "#/definitions/paragraph_node"
         },
         {
-          "additionalProperties": true,
+          "type": "object",
           "properties": {
             "marks": {
+              "type": "array",
               "items": {
                 "anyOf": [
                   {
@@ -2776,11 +2407,10 @@
                     "$ref": "#/definitions/alignment_mark"
                   }
                 ]
-              },
-              "type": "array"
+              }
             }
           },
-          "type": "object"
+          "additionalProperties": true
         }
       ]
     },
@@ -2790,16 +2420,16 @@
           "$ref": "#/definitions/paragraph_node"
         },
         {
-          "additionalProperties": true,
+          "type": "object",
           "properties": {
             "marks": {
+              "type": "array",
               "items": {
                 "$ref": "#/definitions/fontSize_mark"
-              },
-              "type": "array"
+              }
             }
           },
-          "type": "object"
+          "additionalProperties": true
         }
       ]
     },
@@ -2809,9 +2439,10 @@
           "$ref": "#/definitions/paragraph_node"
         },
         {
-          "additionalProperties": true,
+          "type": "object",
           "properties": {
             "marks": {
+              "type": "array",
               "items": {
                 "anyOf": [
                   {
@@ -2821,11 +2452,10 @@
                     "$ref": "#/definitions/indentation_mark"
                   }
                 ]
-              },
-              "type": "array"
+              }
             }
           },
-          "type": "object"
+          "additionalProperties": true
         }
       ]
     },
@@ -2835,205 +2465,161 @@
           "$ref": "#/definitions/paragraph_node"
         },
         {
-          "additionalProperties": true,
+          "type": "object",
           "properties": {
             "marks": {
-              "maxItems": 0,
-              "type": "array"
+              "type": "array",
+              "maxItems": 0
             }
           },
-          "type": "object"
+          "additionalProperties": true
         }
       ]
     },
     "placeholder_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["placeholder"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
-            "localId": {
-              "type": "string"
-            },
             "text": {
               "type": "string"
+            },
+            "localId": {
+              "type": "string"
             }
           },
-          "required": [
-            "text"
-          ],
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "placeholder"
-          ]
+          "required": ["text"],
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "attrs"]
     },
     "rule_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["rule"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "localId": {
               "type": "string"
             }
           },
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "rule"
-          ]
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type"]
     },
     "status_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["status"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
-            "color": {
-              "pattern": "^(neutral|purple|blue|red|yellow|green|#[0-9a-fA-F]{6})$",
+            "text": {
+              "minLength": 1,
               "type": "string"
+            },
+            "color": {
+              "type": "string",
+              "pattern": "^(neutral|purple|blue|red|yellow|green|#[0-9a-fA-F]{6})$"
             },
             "localId": {
               "type": "string"
             },
             "style": {
               "type": "string"
-            },
-            "text": {
-              "minLength": 1,
-              "type": "string"
             }
           },
-          "required": [
-            "text",
-            "color"
-          ],
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "status"
-          ]
+          "required": ["text", "color"],
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "attrs"]
     },
     "strike_mark": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
         "type": {
-          "enum": [
-            "strike"
-          ]
+          "enum": ["strike"]
         }
       },
-      "required": [
-        "type"
-      ],
-      "type": "object"
+      "required": ["type"],
+      "additionalProperties": false
     },
     "strong_mark": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
         "type": {
-          "enum": [
-            "strong"
-          ]
+          "enum": ["strong"]
         }
       },
-      "required": [
-        "type"
-      ],
-      "type": "object"
+      "required": ["type"],
+      "additionalProperties": false
     },
     "subsup_mark": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["subsup"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "type": {
-              "enum": [
-                "sub",
-                "sup"
-              ]
+              "enum": ["sub", "sup"]
             }
           },
-          "required": [
-            "type"
-          ],
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "subsup"
-          ]
+          "required": ["type"],
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "required": ["type", "attrs"],
+      "additionalProperties": false
     },
     "syncBlock_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["syncBlock"]
+        },
+        "marks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/breakout_mark"
+          }
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
-            "localId": {
+            "resourceId": {
               "type": "string"
             },
-            "resourceId": {
+            "localId": {
               "type": "string"
             }
           },
-          "required": [
-            "resourceId",
-            "localId"
-          ],
-          "type": "object"
-        },
-        "marks": {
-          "items": {
-            "$ref": "#/definitions/breakout_mark"
-          },
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "syncBlock"
-          ]
+          "required": ["resourceId", "localId"],
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "attrs"]
     },
     "table_cell_content": {
+      "type": "array",
       "items": {
         "anyOf": [
           {
@@ -3098,118 +2684,105 @@
           }
         ]
       },
-      "minItems": 1,
-      "type": "array"
+      "minItems": 1
     },
     "table_cell_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["tableCell"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
-            "background": {
-              "type": "string"
-            },
             "colspan": {
               "type": "number"
-            },
-            "colwidth": {
-              "items": {
-                "type": "number"
-              },
-              "type": "array"
-            },
-            "localId": {
-              "type": "string"
             },
             "rowspan": {
               "type": "number"
             },
+            "colwidth": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "background": {
+              "type": "string"
+            },
+            "localId": {
+              "type": "string"
+            },
             "valign": {
-              "enum": [
-                "top",
-                "middle",
-                "bottom"
-              ]
+              "enum": ["top", "middle", "bottom"]
             }
           },
-          "type": "object"
+          "additionalProperties": false
         },
         "content": {
           "$ref": "#/definitions/table_cell_content"
-        },
-        "type": {
-          "enum": [
-            "tableCell"
-          ]
         }
       },
-      "required": [
-        "type",
-        "content"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "content"]
     },
     "table_header_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["tableHeader"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
-            "background": {
-              "type": "string"
-            },
             "colspan": {
               "type": "number"
-            },
-            "colwidth": {
-              "items": {
-                "type": "number"
-              },
-              "type": "array"
-            },
-            "localId": {
-              "type": "string"
             },
             "rowspan": {
               "type": "number"
             },
+            "colwidth": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "background": {
+              "type": "string"
+            },
+            "localId": {
+              "type": "string"
+            },
             "valign": {
-              "enum": [
-                "top",
-                "middle",
-                "bottom"
-              ]
+              "enum": ["top", "middle", "bottom"]
             }
           },
-          "type": "object"
+          "additionalProperties": false
         },
         "content": {
           "$ref": "#/definitions/table_cell_content"
-        },
-        "type": {
-          "enum": [
-            "tableHeader"
-          ]
         }
       },
-      "required": [
-        "type",
-        "content"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "content"]
     },
     "table_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["table"]
+        },
+        "marks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/fragment_mark"
+          }
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "displayMode": {
-              "enum": [
-                "default",
-                "fixed"
-              ]
+              "enum": ["default", "fixed"]
             },
             "isNumberColumnEnabled": {
               "type": "boolean"
@@ -3225,53 +2798,43 @@
               ]
             },
             "localId": {
-              "minLength": 1,
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "width": {
               "type": "number"
             }
           },
-          "type": "object"
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "$ref": "#/definitions/table_row_node"
           },
-          "minItems": 1,
-          "type": "array"
-        },
-        "marks": {
-          "items": {
-            "$ref": "#/definitions/fragment_mark"
-          },
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "table"
-          ]
+          "minItems": 1
         }
       },
-      "required": [
-        "type",
-        "content"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "content"]
     },
     "table_row_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["tableRow"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "localId": {
               "type": "string"
             }
           },
-          "type": "object"
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "anyOf": [
               {
@@ -3281,77 +2844,59 @@
                 "$ref": "#/definitions/table_header_node"
               }
             ]
-          },
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "tableRow"
-          ]
+          }
         }
       },
-      "required": [
-        "type",
-        "content"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "content"]
     },
     "taskItem_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["taskItem"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "localId": {
               "type": "string"
             },
             "state": {
-              "enum": [
-                "TODO",
-                "DONE"
-              ]
+              "enum": ["TODO", "DONE"]
             }
           },
-          "required": [
-            "localId",
-            "state"
-          ],
-          "type": "object"
+          "required": ["localId", "state"],
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "$ref": "#/definitions/inline_node"
-          },
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "taskItem"
-          ]
+          }
         }
       },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "attrs"]
     },
     "taskList_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["taskList"]
+        },
         "attrs": {
-          "additionalProperties": false,
+          "type": "object",
           "properties": {
             "localId": {
               "type": "string"
             }
           },
-          "required": [
-            "localId"
-          ],
-          "type": "object"
+          "required": ["localId"],
+          "additionalProperties": false
         },
         "content": {
+          "type": "array",
           "items": {
             "anyOf": [
               {
@@ -3365,71 +2910,28 @@
               }
             ]
           },
-          "minItems": 1,
-          "type": "array"
-        },
-        "type": {
-          "enum": [
-            "taskList"
-          ]
+          "minItems": 1
         }
       },
-      "required": [
-        "type",
-        "attrs",
-        "content"
-      ],
-      "type": "object"
-    },
-    "textColor_mark": {
       "additionalProperties": false,
-      "properties": {
-        "attrs": {
-          "additionalProperties": false,
-          "properties": {
-            "color": {
-              "pattern": "^#[0-9a-fA-F]{6}$",
-              "type": "string"
-            }
-          },
-          "required": [
-            "color"
-          ],
-          "type": "object"
-        },
-        "type": {
-          "enum": [
-            "textColor"
-          ]
-        }
-      },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "type": "object"
+      "required": ["type", "attrs", "content"]
     },
     "text_node": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
+        "type": {
+          "enum": ["text"]
+        },
         "marks": {
           "type": "array"
         },
         "text": {
           "minLength": 1,
           "type": "string"
-        },
-        "type": {
-          "enum": [
-            "text"
-          ]
         }
       },
-      "required": [
-        "type",
-        "text"
-      ],
-      "type": "object"
+      "additionalProperties": false,
+      "required": ["type", "text"]
     },
     "text_with_no_marks_node": {
       "allOf": [
@@ -3437,31 +2939,47 @@
           "$ref": "#/definitions/text_node"
         },
         {
-          "additionalProperties": true,
+          "type": "object",
           "properties": {
             "marks": {
-              "maxItems": 0,
-              "type": "array"
+              "type": "array",
+              "maxItems": 0
             }
           },
-          "type": "object"
+          "additionalProperties": true
         }
       ]
     },
-    "underline_mark": {
-      "additionalProperties": false,
+    "textColor_mark": {
+      "type": "object",
       "properties": {
         "type": {
-          "enum": [
-            "underline"
-          ]
+          "enum": ["textColor"]
+        },
+        "attrs": {
+          "type": "object",
+          "properties": {
+            "color": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            }
+          },
+          "required": ["color"],
+          "additionalProperties": false
         }
       },
-      "required": [
-        "type"
-      ],
-      "type": "object"
+      "required": ["type", "attrs"],
+      "additionalProperties": false
+    },
+    "underline_mark": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": ["underline"]
+        }
+      },
+      "required": ["type"],
+      "additionalProperties": false
     }
-  },
-  "description": "Schema for Atlassian Document Format."
+  }
 }
