@@ -470,7 +470,11 @@ func (r *Renderer) renderText(_ io.Writer, source []byte, node ast.Node, enterin
 	}
 	n := node.(*ast.Text)
 	s := state(rc)
-	if value := n.Value.Value(source); value != "" {
+	value := n.Value.Value(source)
+	if n.SoftLineBreak() {
+		value += " "
+	}
+	if value != "" {
 		if marks := s.marks(); len(marks) != 0 {
 			s.appendNode(*NewTextWithMarks(value, marks))
 		} else {
