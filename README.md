@@ -1,5 +1,10 @@
 # goldmark-adf
 
+The `release/v1` branch receives selective correctness and security fixes.
+It retains Go 1.25.6 compatibility with `GOEXPERIMENT=jsonv2`. New features are
+developed on [v2](https://github.com/ajbeck/goldmark-adf/tree/main).
+
+
 A [goldmark](https://github.com/yuin/goldmark) renderer that outputs Atlassian Document Format (ADF) JSON instead of HTML.
 
 ADF is the native document format used by Atlassian products like Jira Cloud and Confluence Cloud.
