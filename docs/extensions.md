@@ -28,7 +28,10 @@ if err := md.Convert(markdown, &buf); err != nil {
 
 ### Status
 
-Parses `[status:TEXT|COLOR]` into an ADF `status` node.
+Parses `[status:TEXT|COLOR]` into an ADF `status` node. `COLOR` accepts
+`neutral`, `purple`, `blue`, `red`, `yellow`, `green`, or a six-digit hex colour
+such as `#12AbEf`. Hex letter case is preserved; shorthand and alpha colours
+are not accepted.
 
 ```markdown
 [status:In Progress|yellow]

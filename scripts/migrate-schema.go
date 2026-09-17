@@ -1,27 +1,17 @@
-//go:build ignore
-
-// migrate-schema.go transforms the ADF JSON Schema from draft-04 to draft-07 format.
-//
-// Usage:
-//
-//	go run scripts/migrate-schema.go
-//
-// This downloads the original schema from Atlassian, applies the necessary
-// transformations for draft-07 compatibility, and saves it to adfschema/adf-schema.json.
+// Command migrate-schema normalizes the vendored ADF schema to draft-07.
+// Run from the repository root: go run ./scripts
 package main
 
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 )
 
 const (
-	schemaURL    = "https://unpkg.com/@atlaskit/adf-schema@51.5.6/dist/json-schema/v1/full.json"
-	outputPath   = "adfschema/adf-schema.json"
-	draft07URI   = "http://json-schema.org/draft-07/schema#"
+	sourcePath = "adfschema/upstream/full-57.5.0.json"
+	outputPath = "adfschema/adf-schema.json"
+	draft07URI = "http://json-schema.org/draft-07/schema#"
 )
 
 func main() {
@@ -32,112 +22,78 @@ func main() {
 }
 
 func run() error {
-	// Download the schema
-	fmt.Println("Downloading ADF schema...")
-	resp, err := http.Get(schemaURL)
+	data, err := os.ReadFile(sourcePath)
 	if err != nil {
-		return fmt.Errorf("downloading schema: %w", err)
+		return fmt.Errorf("reading upstream schema: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status: %s", resp.Status)
-	}
-
-	data, err := io.ReadAll(resp.Body)
+	output, err := normalize(data)
 	if err != nil {
-		return fmt.Errorf("reading response: %w", err)
+		return err
 	}
-
-	// Parse the schema
-	var schema map[string]any
-	if err := json.Unmarshal(data, &schema); err != nil {
-		return fmt.Errorf("parsing schema: %w", err)
-	}
-
-	// Migrate to draft-07
-	fmt.Println("Migrating to draft-07...")
-	migrate(schema)
-
-	// Marshal with indentation
-	output, err := json.MarshalIndent(schema, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshaling schema: %w", err)
-	}
-
-	// Write to file
-	if err := os.WriteFile(outputPath, output, 0644); err != nil {
+	if err := os.WriteFile(outputPath, output, 0o644); err != nil {
 		return fmt.Errorf("writing schema: %w", err)
 	}
-
-	fmt.Printf("Schema migrated successfully to %s\n", outputPath)
 	return nil
 }
 
-// migrate transforms a draft-04 schema to draft-07 format in-place.
+func normalize(data []byte) ([]byte, error) {
+	var schema map[string]any
+	if err := json.Unmarshal(data, &schema); err != nil {
+		return nil, fmt.Errorf("parsing schema: %w", err)
+	}
+	if schema["$schema"] != "http://json-schema.org/draft-04/schema#" {
+		return nil, fmt.Errorf("expected draft-04 schema, got %v", schema["$schema"])
+	}
+	migrate(schema)
+	output, err := json.MarshalIndent(schema, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshaling schema: %w", err)
+	}
+	return append(output, '\n'), nil
+}
+
+// migrate visits schema objects, never instance data or maps of property names.
 func migrate(schema map[string]any) {
-	// Update $schema URI
-	if s, ok := schema["$schema"].(string); ok && s == "http://json-schema.org/draft-04/schema#" {
+	if schema["$schema"] == "http://json-schema.org/draft-04/schema#" {
 		schema["$schema"] = draft07URI
 	}
+	if id, ok := schema["id"].(string); ok {
+		if _, exists := schema["$id"]; !exists {
+			schema["$id"] = id
+		}
+		delete(schema, "id")
+	}
+	for _, bound := range []struct{ exclusive, inclusive string }{
+		{"exclusiveMinimum", "minimum"},
+		{"exclusiveMaximum", "maximum"},
+	} {
+		if exclusive, ok := schema[bound.exclusive].(bool); ok {
+			delete(schema, bound.exclusive)
+			if exclusive {
+				schema[bound.exclusive] = schema[bound.inclusive]
+				delete(schema, bound.inclusive)
+			}
+		}
+	}
 
-	// Recursively process all nested objects
-	for key, value := range schema {
-		switch v := value.(type) {
-		case map[string]any:
-			migrateObject(v)
-		case []any:
-			for _, item := range v {
-				if obj, ok := item.(map[string]any); ok {
-					migrateObject(obj)
+	// Each value in these maps can be a schema; its key is a data property name.
+	for _, keyword := range []string{"definitions", "properties", "patternProperties", "dependencies"} {
+		if children, ok := schema[keyword].(map[string]any); ok {
+			for _, child := range children {
+				if sub, ok := child.(map[string]any); ok {
+					migrate(sub)
 				}
 			}
 		}
-		// Handle id -> $id rename at top level
-		if key == "id" {
-			if _, hasID := schema["$id"]; !hasID {
-				schema["$id"] = value
-				delete(schema, "id")
-			}
-		}
 	}
-}
-
-// migrateObject transforms a schema object in-place.
-func migrateObject(obj map[string]any) {
-	// Handle exclusiveMinimum/exclusiveMaximum conversion
-	// Draft-04: { "minimum": 0, "exclusiveMinimum": true }
-	// Draft-07: { "exclusiveMinimum": 0 }
-	if exMin, ok := obj["exclusiveMinimum"].(bool); ok && exMin {
-		if min, ok := obj["minimum"]; ok {
-			obj["exclusiveMinimum"] = min
-			delete(obj, "minimum")
-		}
-	}
-	if exMax, ok := obj["exclusiveMaximum"].(bool); ok && exMax {
-		if max, ok := obj["maximum"]; ok {
-			obj["exclusiveMaximum"] = max
-			delete(obj, "maximum")
-		}
-	}
-
-	// Handle id -> $id rename
-	if id, ok := obj["id"]; ok {
-		if _, has := obj["$id"]; !has {
-			obj["$id"] = id
-			delete(obj, "id")
-		}
-	}
-
-	// Recursively process nested objects
-	for _, value := range obj {
-		switch v := value.(type) {
+	for _, keyword := range []string{"additionalProperties", "additionalItems", "not", "items", "allOf", "anyOf", "oneOf"} {
+		switch children := schema[keyword].(type) {
 		case map[string]any:
-			migrateObject(v)
+			migrate(children)
 		case []any:
-			for _, item := range v {
-				if nested, ok := item.(map[string]any); ok {
-					migrateObject(nested)
+			for _, child := range children {
+				if sub, ok := child.(map[string]any); ok {
+					migrate(sub)
 				}
 			}
 		}

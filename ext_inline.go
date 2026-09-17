@@ -80,16 +80,30 @@ func (p *statusParser) Parse(parent ast.Node, block text.Reader, pc parser.Conte
 	statusText := unescapeDelimiters(inner[:pipeIdx], "|]")
 	color := inner[pipeIdx+1:]
 
-	// Validate color is a known ADF status color
-	switch color {
-	case "neutral", "purple", "blue", "red", "yellow", "green":
-	default:
+	// Validate named colors and six-digit hex colors.
+	if !validStatusColor(color) {
 		return nil
 	}
 
 	block.Advance(8 + closeBracket + 1) // [status: + inner + ]
 	_ = seg
 	return astext.NewStatus(statusText, color)
+}
+
+func validStatusColor(color string) bool {
+	switch color {
+	case "neutral", "purple", "blue", "red", "yellow", "green":
+		return true
+	}
+	if len(color) != 7 || color[0] != '#' {
+		return false
+	}
+	for _, c := range color[1:] {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 func findLastUnescapedPipe(s string) int {
