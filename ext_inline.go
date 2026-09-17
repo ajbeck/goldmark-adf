@@ -98,15 +98,29 @@ func (*statusParser) Parse(_ ast.Node, block text.Reader, _ parser.Context) ast.
 		return nil
 	}
 	color := rest[pipe+1 : close]
-	switch color {
-	case "neutral", "purple", "blue", "red", "yellow", "green":
-	default:
+	if !validStatusColor(color) {
 		return nil
 	}
 	block.Advance(8 + close + 1)
 	n := astext.NewStatus(valueAt(seg, 8, 8+pipe, delimiterDecoder{"|]"}), color)
 	n.SetPos(seg.Start - seg.Padding)
 	return n
+}
+
+func validStatusColor(color string) bool {
+	switch color {
+	case "neutral", "purple", "blue", "red", "yellow", "green":
+		return true
+	}
+	if len(color) != 7 || color[0] != '#' {
+		return false
+	}
+	for _, c := range color[1:] {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 type mentionParser struct{}
